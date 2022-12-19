@@ -19,7 +19,7 @@ impl QueryBuilder {
     fn append_pair(mut self, key: &str, value: &str) -> Self {
         let pair = format!("{}={}", key, value);
         if self.query.is_empty() {
-            self.query = self.query + pair.as_str();
+            self.query += pair.as_str();
             self
         } else {
             self.query = self.query + "&" + pair.as_str();
@@ -85,13 +85,11 @@ async fn send_request(
     let res = match url.scheme() {
         "http" => {
             let client = Client::new();
-            let res = client.request(request).await?;
-            res
+            client.request(request).await?
         }
         "https" => {
             let client = build_https_client();
-            let res = client.request(request).await?;
-            res
+            client.request(request).await?
         }
         _ => {
             panic!("Invalid scheme");

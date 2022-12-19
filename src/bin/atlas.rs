@@ -1,6 +1,4 @@
-mod metainfo;
-mod tracker;
-
+use ferrotorr::*;
 use metainfo::{render_torrent, Torrent};
 use serde_bencode::de;
 use std::{env, error::Error, fs};
@@ -12,7 +10,7 @@ async fn main() -> Result<()> {
     if let Some(path) = env::args().nth(1) {
         let buffer = fs::read(path)?;
         let torrent = de::from_bytes::<Torrent>(&buffer)?;
-        if let Some(_) = env::args().nth(2) {
+        if  env::args().nth(2).is_some() {
             render_torrent(&torrent);
         }
         get_peers(torrent).await?;

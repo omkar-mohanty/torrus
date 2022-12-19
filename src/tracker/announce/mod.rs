@@ -5,8 +5,9 @@ use serde::Deserializer;
 use serde_bytes::ByteBuf;
 use serde_derive::Deserialize;
 use std::{
+    marker::PhantomData,
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr, marker::PhantomData,
+    str::FromStr,
 };
 
 #[derive(Clone, Debug)]
@@ -56,6 +57,16 @@ where
         {
             IpAddr::from_str(v).map_err(|e| E::custom(format!("Could not parse ip: {}", e)))
         }
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            let ip_str = String::from_utf8_lossy(v);
+            match IpAddr::from_str(&ip_str) {
+                Ok(ip) => Ok(ip),
+                Err(_) => Err(E::custom("Could not parse ip")),
+            }
+        }
     }
     de.deserialize_str(Visitor {})
 }
@@ -92,15 +103,16 @@ pub struct AnnounceResponse {
 
 #[derive(Debug)]
 pub struct Peers {
-    addrs: Vec<SocketAddr>
+    pub addrs: Vec<SocketAddr>,
 }
 
 impl<'de> serde::Deserialize<'de> for Peers {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         struct Visitor<'de> {
-            phantom: std::marker::PhantomData<&'de()>
+            phantom: std::marker::PhantomData<&'de ()>,
         }
 
         impl<'de> serde::de::Visitor<'de> for Visitor<'de> {
@@ -109,7 +121,7 @@ impl<'de> serde::Deserialize<'de> for Peers {
                 formatter.write_str("a list of peers in dict or binary format")
             }
 
-             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
@@ -131,10 +143,10 @@ impl<'de> serde::Deserialize<'de> for Peers {
                         .collect(),
                 })
             }
-        } 
-        
-        deserializer.deserialize_any(Visitor{
-            phantom:PhantomData
+        }
+
+        deserializer.deserialize_any(Visitor {
+            phantom: PhantomData,
         })
     }
 }

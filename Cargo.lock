@@ -106,7 +106,6 @@ name = "ferrotorr"
 version = "0.1.0"
 dependencies = [
  "byteorder",
- "hex",
  "hyper",
  "hyper-tls",
  "percent-encoding",
@@ -118,7 +117,6 @@ dependencies = [
  "sha1",
  "tokio",
  "url",
- "urlencoding",
 ]
 
 [[package]]
@@ -244,12 +242,6 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "http"
@@ -892,12 +884,6 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8db7427f936968176eaa7cdf81b7f98b980b18495ec28f1b5791ac3bfe3eea9"
 
 [[package]]
 name = "vcpkg"
