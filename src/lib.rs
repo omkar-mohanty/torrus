@@ -1,3 +1,3 @@
-pub mod metainfo;
 pub mod core;
+pub mod metainfo;
 pub mod tracker;

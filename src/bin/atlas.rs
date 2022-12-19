@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
     if let Some(path) = env::args().nth(1) {
         let buffer = fs::read(path)?;
         let torrent = de::from_bytes::<Torrent>(&buffer)?;
-        if  env::args().nth(2).is_some() {
+        if env::args().nth(2).is_some() {
             render_torrent(&torrent);
         }
         get_peers(torrent).await?;
