@@ -1,5 +1,6 @@
 use crate::metainfo::Torrent;
 use byteorder::ByteOrder;
+use connection::Connection;
 use rand::Rng;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -11,65 +12,82 @@ use std::{
 };
 use url::Url;
 
-use connection::Connection;
-
-mod announce;
 mod connection;
+
+type Error = Box<dyn std::error::Error>;
 
 pub enum TrackerState {
     Alive,
     Dead,
 }
 
-pub struct Tracker {
+pub struct Tracker<'a> {
     id: Option<ByteBuf>,
     alive: TrackerState,
-    connection: Connection
+    connection: Connection,
+    torrent: &'a Torrent,
 }
 
-pub async fn get_peers(torrent: Torrent) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(al) = &torrent.announce_list {
-        for a in al {
-            let url = Url::parse(a[0].as_str())?;
-
-            match url.scheme() {
-                "http" | "https" => {
-                    handle_http_tracker(url, &torrent).await?;
-                }
-                "udp" => {}
-                _ => {}
-            }
+impl<'a> Tracker<'a> {
+    fn new(url: Url, torrent: &'a Torrent) -> Self {
+        let connection = Connection::new(url);
+        Self {
+            id: None,
+            alive: TrackerState::Dead,
+            connection,
+            torrent,
         }
     }
 
-    Ok(())
+    pub async fn send_request(
+        &mut self,
+        tracker_request: TrackerRequest,
+    ) -> Result<TrackerResponse, Error> {
+        let response = self.connection.send_request(tracker_request).await?;
+
+        if let Some(id) = &response.tracker_id {
+            self.id = Some(id.clone())
+        }
+
+        self.alive = TrackerState::Alive;
+
+        Ok(response)
+    }
+
+    pub async fn announce(&mut self) -> Result<TrackerResponse, Error> {
+        let info_hash = self.torrent.info.hash()?;
+        let peer_id_slice = rand::thread_rng().gen::<[u8; 20]>();
+
+        let mut peer_id = Vec::new();
+        peer_id.extend_from_slice(&peer_id_slice);
+
+        let left = self.torrent.info.length;
+
+        let request = TrackerRequestBuilder::new()
+            .info_hash(info_hash)
+            .peer_id(peer_id)
+            .with_port(6881)
+            .downloaded(0)
+            .uploaded(0)
+            .left(left)
+            .event(String::from_str("started")?)
+            .build();
+
+        Ok(self.send_request(request).await?)
+    }
 }
 
-async fn handle_http_tracker(
-    url: Url,
-    torrent: &Torrent,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let info_hash = torrent.info.hash()?;
-    let peer_id_slice = rand::thread_rng().gen::<[u8; 20]>();
+pub fn get_trackers(torrent: &Torrent) -> Result<Vec<Tracker>, Error> {
+    let mut trackers = Vec::new();
 
-    let mut peer_id = Vec::new();
-    peer_id.extend_from_slice(&peer_id_slice);
+    if let Some(al) = &torrent.announce_list {
+        for a in al {
+            let url = Url::parse(a[0].as_str())?;
+            trackers.push(Tracker::new(url, torrent));
+        }
+    }
 
-    let left = torrent.info.length;
-
-    let request = TrackerRequestBuilder::new()
-        .info_hash(info_hash)
-        .peer_id(peer_id)
-        .with_port(6881)
-        .downloaded(0)
-        .uploaded(0)
-        .left(left)
-        .event(String::from_str("started")?)
-        .build();
-
-    //announce::http_announce::announce(request, url).await?;
-
-    Ok(())
+    Ok(trackers)
 }
 
 #[derive(Clone, Debug)]

@@ -23,6 +23,9 @@ impl Connection {
             "udp" => {
                 todo!()
             }
+            _ => {
+                todo!()
+            }
         };
 
         Self {
@@ -151,6 +154,5 @@ pub async fn announce(request: TrackerRequest, url: Url) -> Result<TrackerRespon
     let slice = &data_bytes[..];
 
     let announce_response = serde_bencode::from_bytes(slice)?;
-    println!("{}", announce_response);
     Ok(announce_response)
 }
