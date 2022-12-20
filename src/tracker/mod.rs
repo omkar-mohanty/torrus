@@ -1,6 +1,5 @@
 use crate::metainfo::Torrent;
 use byteorder::ByteOrder;
-use connection::Connection;
 use rand::Rng;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -10,9 +9,12 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     str::FromStr,
 };
-use url::Url;
+use url::{form_urlencoded::byte_serialize, Url};
+
+use connection::{from_url, ConnectionMessage, Session};
 
 mod connection;
+mod error;
 
 type Error = Box<dyn std::error::Error>;
 
@@ -21,39 +23,46 @@ pub enum TrackerState {
     Dead,
 }
 
+/// Represents a Tracker
+///
+/// In this implementation the initial state of the tracker is assumed to be 'Dead' until it
+/// successfully responds.
+///
+/// Each tracker has a reference to the torrent metainfo.
 pub struct Tracker<'a> {
     id: Option<ByteBuf>,
     alive: TrackerState,
-    connection: Connection,
+    session: Box<dyn Session<TrackerRequest>>,
     torrent: &'a Torrent,
 }
 
 impl<'a> Tracker<'a> {
     fn new(url: Url, torrent: &'a Torrent) -> Self {
-        let connection = Connection::new(url);
+        let session = from_url(url);
         Self {
             id: None,
             alive: TrackerState::Dead,
-            connection,
+            session,
             torrent,
         }
     }
 
+    /// Send tracker request to the given url
     pub async fn send_request(
         &mut self,
         tracker_request: TrackerRequest,
     ) -> Result<TrackerResponse, Error> {
-        let response = self.connection.send_request(tracker_request).await?;
+        let response_bytes = self.session.send(tracker_request)?;
 
-        if let Some(id) = &response.tracker_id {
-            self.id = Some(id.clone())
-        }
+        let response = serde_bencode::from_bytes::<TrackerResponse>(&response_bytes)?;
+
+        self.id = response.tracker_id;
 
         self.alive = TrackerState::Alive;
-
-        Ok(response)
+        todo!()
     }
 
+    /// Announce to the tracker
     pub async fn announce(&mut self) -> Result<TrackerResponse, Error> {
         let info_hash = self.torrent.info.hash()?;
         let peer_id_slice = rand::thread_rng().gen::<[u8; 20]>();
@@ -92,7 +101,6 @@ pub fn get_trackers(torrent: &Torrent) -> Result<Vec<Tracker>, Error> {
 
 #[derive(Clone, Debug)]
 pub struct TrackerRequest {
-    // Fields for the announce request
     info_hash: Vec<u8>,
     peer_id: Vec<u8>,
     downloaded: u64,
@@ -103,6 +111,66 @@ pub struct TrackerRequest {
     key: u32,
     num_want: i32,
     port: u16,
+}
+
+/// Query builder constructs query string for HTTP GET requests
+struct QueryBuilder {
+    query: String,
+}
+
+impl QueryBuilder {
+    fn new() -> Self {
+        Self {
+            query: String::new(),
+        }
+    }
+
+    fn append_pair(mut self, key: &str, value: &str) -> Self {
+        let pair = format!("{}={}", key, value);
+        if self.query.is_empty() {
+            self.query += pair.as_str();
+            self
+        } else {
+            self.query = self.query + "&" + pair.as_str();
+            self
+        }
+    }
+
+    fn build(self) -> String {
+        self.query
+    }
+}
+
+/// Build query string
+fn build_query(request: TrackerRequest) -> String {
+    // Serealize info_hash to percent encoding
+    let info_hash_str: String = byte_serialize(&request.info_hash).collect();
+
+    // Serealize peer_id to percent encoding
+    let peer_id_str: String = byte_serialize(&request.peer_id).collect();
+
+    //Build GET request query
+    QueryBuilder::new()
+        .append_pair("info_hash", &info_hash_str)
+        .append_pair("peer_id", &peer_id_str)
+        .append_pair("downloaded", &request.downloaded.to_string())
+        .append_pair("left", &request.left.to_string())
+        .append_pair("uploaded", &request.uploaded.to_string())
+        .append_pair("event", &request.event)
+        .append_pair("ip_address", &request.ip_address.to_string())
+        .append_pair("key", &request.key.to_string())
+        .append_pair("num_want", &request.num_want.to_string())
+        .append_pair("port", &request.port.to_string())
+        .append_pair("no_peer_id", "0")
+        .append_pair("compact", "1")
+        .build()
+}
+
+impl ConnectionMessage for TrackerRequest {
+    type MessageType = String;
+    fn serealize(self) -> String {
+        build_query(self)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,7 +240,7 @@ pub struct TrackerResponse {
     pub failure_reason: Option<ByteBuf>,
     #[serde(rename = "warning message")]
     pub warning_message: Option<ByteBuf>,
-    pub complete: u64,
+    pub complete: Option<u64>,
     pub interval: u64,
     #[serde(rename = "min interval")]
     pub min_interval: Option<u64>,
@@ -228,28 +296,6 @@ impl<'de> serde::Deserialize<'de> for Peers {
         deserializer.deserialize_any(Visitor {
             phantom: PhantomData,
         })
-    }
-}
-
-impl std::fmt::Display for TrackerResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(failure_reason) = &self.failure_reason {
-            let reason = String::from_utf8_lossy(failure_reason.as_slice());
-
-            return f.write_str(&reason);
-        }
-        if let Some(warning_message) = &self.warning_message {
-            let message = String::from_utf8_lossy(warning_message.as_slice());
-            let message_str = format!("Warning:\t{}", &message);
-            f.write_str(&message_str)?;
-        }
-
-        let response_str = format!(
-            "Completed:\t{}\nInterval:\t{}\nIncomplete:\t{}\n",
-            &self.complete, &self.interval, &self.incomplete
-        );
-
-        f.write_str(&response_str)
     }
 }
 
@@ -356,5 +402,20 @@ impl TrackerRequestBuilder {
             num_want: self.num_want,
             port: self.port,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+    const BENCODE: &str = "d8:intervali1800e5:peersld2:ip13:192.168.189.14:porti20111eeee";
+
+    #[tokio::test]
+    async fn test_deserealize_response() -> Result<()> {
+        serde_bencode::de::from_str::<TrackerResponse>(BENCODE)?;
+        Ok(())
     }
 }

@@ -77,6 +77,12 @@ pub struct Torrent {
     pub created_by: Option<String>,
 }
 
+impl Torrent {
+    pub fn from_bytes(v: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(serde_bencode::de::from_bytes::<Torrent>(v)?)
+    }
+}
+
 pub fn render_torrent(torrent: &Torrent) {
     println!("name:\t\t{}", torrent.info.name);
     println!("announce:\t{:?}", torrent.announce);
@@ -94,4 +100,20 @@ pub fn render_torrent(torrent: &Torrent) {
     println!("piece length:\t{:?}", torrent.info.piece_length);
     println!("private:\t{:?}", torrent.info.private);
     println!("root hash:\t{:?}", torrent.info.root_hash);
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+    const FILEPATH: &str = "./torrents/ubuntu-22.10-desktop-amd64.iso.torrent";
+
+    #[tokio::test]
+    async fn test_from_bytes() -> Result<()> {
+        let file = std::fs::read(FILEPATH)?;
+        Torrent::from_bytes(&file)?;
+        Ok(())
+    }
 }

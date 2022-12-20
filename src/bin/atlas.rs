@@ -1,6 +1,5 @@
 use ferrotorr::*;
 use metainfo::{render_torrent, Torrent};
-use serde_bencode::de;
 use std::{env, error::Error, fs};
 use tracker::get_trackers;
 
@@ -9,7 +8,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 async fn main() -> Result<()> {
     if let Some(path) = env::args().nth(1) {
         let buffer = fs::read(path)?;
-        let torrent = de::from_bytes::<Torrent>(&buffer)?;
+        let torrent = Torrent::from_bytes(&buffer)?;
         if env::args().nth(2).is_some() {
             render_torrent(&torrent);
         }
