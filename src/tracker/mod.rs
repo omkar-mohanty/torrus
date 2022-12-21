@@ -5,13 +5,14 @@ use serde::Deserializer;
 use serde_bytes::ByteBuf;
 use serde_derive::Deserialize;
 use std::{
+    collections::HashMap,
     marker::PhantomData,
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     str::FromStr,
 };
 use url::{form_urlencoded::byte_serialize, Url};
 
-use connection::{from_url, ConnectionMessage, Session};
+use connection::{from_url, Query, Session};
 
 mod connection;
 mod error;
@@ -52,14 +53,15 @@ impl<'a> Tracker<'a> {
         &mut self,
         tracker_request: TrackerRequest,
     ) -> Result<TrackerResponse, Error> {
-        let response_bytes = self.session.send(tracker_request)?;
+        let response_bytes = self.session.send(tracker_request.into()).await?;
 
         let response = serde_bencode::from_bytes::<TrackerResponse>(&response_bytes)?;
 
-        self.id = response.tracker_id;
+        self.id = response.tracker_id.clone();
 
         self.alive = TrackerState::Alive;
-        todo!()
+
+        Ok(response)
     }
 
     /// Announce to the tracker
@@ -113,36 +115,36 @@ pub struct TrackerRequest {
     port: u16,
 }
 
+impl Into<Query> for TrackerRequest {
+    fn into(self) -> Query {
+        Query::new(build_query_map(self))
+    }
+}
+
 /// Query builder constructs query string for HTTP GET requests
 struct QueryBuilder {
-    query: String,
+    query_map: HashMap<String, String>,
 }
 
 impl QueryBuilder {
     fn new() -> Self {
         Self {
-            query: String::new(),
+            query_map: HashMap::new(),
         }
     }
 
     fn append_pair(mut self, key: &str, value: &str) -> Self {
-        let pair = format!("{}={}", key, value);
-        if self.query.is_empty() {
-            self.query += pair.as_str();
-            self
-        } else {
-            self.query = self.query + "&" + pair.as_str();
-            self
-        }
+        self.query_map.insert(key.to_string(), value.to_string());
+        self
     }
 
-    fn build(self) -> String {
-        self.query
+    fn build_map(self) -> HashMap<String, String> {
+        self.query_map
     }
 }
 
 /// Build query string
-fn build_query(request: TrackerRequest) -> String {
+fn build_query_map<'a>(request: TrackerRequest) -> HashMap<String, String> {
     // Serealize info_hash to percent encoding
     let info_hash_str: String = byte_serialize(&request.info_hash).collect();
 
@@ -163,14 +165,7 @@ fn build_query(request: TrackerRequest) -> String {
         .append_pair("port", &request.port.to_string())
         .append_pair("no_peer_id", "0")
         .append_pair("compact", "1")
-        .build()
-}
-
-impl ConnectionMessage for TrackerRequest {
-    type MessageType = String;
-    fn serealize(self) -> String {
-        build_query(self)
-    }
+        .build_map()
 }
 
 #[derive(Deserialize, Debug)]

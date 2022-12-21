@@ -1,22 +1,68 @@
-use super::error::TrackerError;
-use super::{TrackerRequest, TrackerResponse};
+use async_trait::async_trait;
+use error::ConnectionError;
 use hyper::body::HttpBody;
-use hyper::{client::connect::Connect, Body, Client, Request, Response, StatusCode};
+use hyper::{client::connect::Connect, Body, Client};
+use hyper::{Response, StatusCode};
 use hyper_tls::HttpsConnector;
+use std::collections::HashMap;
+use std::ops::Deref;
 use url::Url;
 
-type Bytes = Vec<u8>;
-type Result<T> = std::result::Result<T, TrackerError>;
+mod error;
 
-pub fn from_url<T: ConnectionMessage>(url: Url) -> Box<dyn Session<T>> {
-    from_url_udp(url)
+type Result<T> = std::result::Result<T, ConnectionError>;
+
+pub struct Query(HashMap<String, String>);
+pub struct Bytes(Vec<u8>);
+
+impl Query {
+    pub fn new(map: HashMap<String, String>) -> Self {
+        Self(map)
+    }
 }
 
-fn from_url_udp<T: ConnectionMessage>(url: Url) -> Box<dyn Session<T>> {
+impl Deref for Bytes {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.0.as_slice()
+    }
+}
+
+impl Into<String> for Query {
+    fn into(self) -> String {
+        let map = self.0;
+        let mut res = String::new();
+       
+        for (key,value) in map.iter() {
+            if res.is_empty() {
+                res+=key;
+                res+="=";
+                res+=value;
+            }
+
+            res+="&";
+            res+=key;
+            res+="=";
+            res+=value;
+        }
+        println!("{}",res);
+        res
+    }
+}
+
+pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
+    match url.scheme() {
+        "http" | "https" => from_url_http(url),
+        "udp" => from_url_udp(url),
+        _ => todo!(),
+    }
+}
+
+fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
     Box::new(UdpSession { url })
 }
 
-fn from_url_http<T: ConnectionMessage<MessageType = String>>(url: Url) -> Box<dyn Session<T>> {
+fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
     match url.scheme() {
         "https" => Box::new(HttpSession {
             url,
@@ -30,17 +76,21 @@ fn from_url_http<T: ConnectionMessage<MessageType = String>>(url: Url) -> Box<dy
     }
 }
 
-pub trait Session<T: ConnectionMessage> {
-    fn send(&self, message: T) -> Result<Bytes>;
+#[async_trait]
+pub trait Session<T: Into<Query>> {
+    async fn send(&self, message: T) -> Result<Bytes>;
 }
 
 struct UdpSession {
     url: Url,
 }
 
-impl<T: ConnectionMessage> Session<T> for UdpSession {
-    fn send(&self, message: T) -> Result<Bytes> {
-        todo!()
+#[async_trait]
+impl<T: Into<Query> + Send + 'static> Session<T> for UdpSession {
+    async fn send(&self, _message: T) -> Result<Bytes> {
+        let slice = Vec::new();
+        let res = Bytes(slice);
+        Ok(res)
     }
 }
 
@@ -53,114 +103,64 @@ impl<T> HttpSession<T>
 where
     T: Connect + Clone + Send + Sync + 'static,
 {
-    async fn send_message(
-        &self,
-        message: impl ConnectionMessage<MessageType = String>,
-    ) -> Result<Bytes> {
-        let query = message.serealize();
-
+    async fn send_message(&self, message: impl Into<Query>) -> Result<Bytes> {
+        let query = Into::<Query>::into(message);
         let mut url = self.url.clone();
 
-        url.set_query(Some(&query));
+        let query_str = Into::<String>::into(query);
+        url.set_query(Some(&query_str));
 
-        let req = hyper::Request::get(url.as_str().parse::<hyper::Uri>()?).body(Body::empty())?;
+        let uri = url.as_str().parse::<hyper::Uri>()?;
+        let req = hyper::Request::get(uri).body(Body::empty())?;
 
-        let res = self.client.request(req);
+        let response = self.client.request(req).await?;
 
-        let body = res.await.unwrap().into_body().data().await.unwrap()?;
+        self.handle_response(response).await
+    }
 
-        Ok(Vec::from(body))
+    async fn handle_response(&self, response: Response<Body>) -> Result<Bytes> {
+        let status_code = response.status();
+
+        match status_code {
+            StatusCode::OK => Self::process_body(response).await,
+            StatusCode::BAD_REQUEST => Err(ConnectionError::Custom("HTTP Bad request".to_string())),
+            StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT => self.handle_redirect(response).await,
+            _ => Self::process_body(response).await,
+        }
+    }
+
+    async fn handle_redirect(&self, response: Response<Body>) -> Result<Bytes> {
+
+        Self::process_body(response).await
+    }
+
+    async fn process_body(response: Response<Body>) -> Result<Bytes> {
+        let body = response.into_body().data().await;
+        match body {
+            Some(data) => {
+                let res = data?.to_vec();
+
+                Ok(Bytes(res))
+            }
+            None => return Err(ConnectionError::Custom("Received empty Body".to_string())),
+        }
     }
 }
 
+#[async_trait]
 impl<T, K> Session<T> for HttpSession<K>
 where
-    T: ConnectionMessage<MessageType = String>,
+    T: Into<Query> + Send + 'static,
     K: Connect + Clone + Send + Sync + 'static,
 {
-    fn send(&self, message: T) -> Result<Bytes> {
-        self.send_message(message);
-        todo!()
+    async fn send(&self, message: T) -> Result<Bytes> {
+        Ok(self.send_message(message).await?)
     }
-}
-
-pub trait ConnectionMessage<MessageType = Bytes> {
-    type MessageType;
-
-    fn serealize(self) -> Self::MessageType;
 }
 
 fn build_https_client() -> Client<HttpsConnector<hyper::client::HttpConnector>> {
     let client = Client::builder();
     client.build::<_, Body>(HttpsConnector::new())
-}
-
-/// Build TrackerRequest object
-fn build_announce_request(request: TrackerRequest, mut url: Url) -> Result<Request<Body>> {
-    // Build query string
-    let query = request.serealize();
-
-    url.set_query(Some(&query));
-
-    // Parse the url as hyper Uri
-    let uri = url.as_str().parse::<hyper::Uri>()?;
-
-    // Construct the HTTP request object
-    let req = hyper::Request::get(uri).body(Body::empty())?;
-
-    Ok(req)
-}
-
-/// Construct client depending on with or without tls
-async fn send_request(request: Request<Body>, url: Url) -> Result<Response<Body>> {
-    let res = match url.scheme() {
-        "http" => {
-            let client = Client::new();
-            client.request(request).await?
-        }
-        "https" => {
-            let client = build_https_client();
-            client.request(request).await?
-        }
-        _ => {
-            panic!("Invalid scheme");
-        }
-    };
-
-    Ok(res)
-}
-
-/// Implements the announce protocol from Bittorrent specification
-///
-/// Note this implementation infinitely redirects
-pub async fn announce(request: TrackerRequest, url: Url) -> Result<TrackerResponse> {
-    // Build http announce request
-    let req = build_announce_request(request.clone(), url.clone())?;
-
-    // Send the request to the tracker
-    let mut res = send_request(req, url.clone()).await?;
-
-    while res.status() == StatusCode::TEMPORARY_REDIRECT {
-        // Get the URL from the "Location" header
-        let location = res.headers().get("Location").unwrap();
-        let location_url = location.to_str().unwrap();
-        let url = url.clone();
-
-        // Construct a new request to the URL
-        let redirect_url = url.join(location_url)?;
-
-        let new_req = build_announce_request(request.clone(), url.clone())?;
-
-        // Send the new request
-        res = send_request(new_req, redirect_url).await?;
-    }
-
-    let data_bytes = res.into_body().data().await.unwrap()?;
-
-    let slice = &data_bytes[..];
-
-    let announce_response = serde_bencode::from_bytes(slice)?;
-    Ok(announce_response)
 }
 
 #[cfg(test)]
