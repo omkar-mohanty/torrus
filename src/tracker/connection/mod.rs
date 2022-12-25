@@ -1,19 +1,102 @@
+pub mod error;
+
 use async_trait::async_trait;
+use byteorder::{ByteOrder, NetworkEndian};
+use bytes::{Buf, BytesMut};
 use error::ConnectionError;
+use futures::{SinkExt, StreamExt};
 use hyper::body::HttpBody;
 use hyper::{client::connect::Connect, Body, Client};
 use hyper::{Response, StatusCode};
 use hyper_tls::HttpsConnector;
+use rand::Rng;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::ops::Deref;
+use std::time::Duration;
+use tokio::net::UdpSocket;
+use tokio::time::timeout;
+use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::udp::UdpFramed;
 use url::Url;
-
-mod error;
 
 type Result<T> = std::result::Result<T, ConnectionError>;
 
 pub struct Query(HashMap<String, String>);
 pub struct Bytes(Vec<u8>);
+
+struct UdpConnectRequest {
+    /// 64-bit Protocol ID
+    protocol_id: u64,
+    /// 32-bit action i.e 'Connect' or 'Announce'
+    action: u32,
+    /// 64-bit Transaction Id
+    transaction_id: u32,
+}
+
+impl UdpConnectRequest {
+    fn new() -> Self {
+        let transaction_id = rand::thread_rng().gen();
+
+        let protocol_id = 0x4172710198;
+
+        let action = 0;
+
+        Self {
+            protocol_id,
+            action,
+            transaction_id,
+        }
+    }
+}
+
+struct UdpConnectResponse {
+    /// 32-bit action i.e 'Connect' or 'Announce'
+    action: u32,
+    /// 64-bit Transaction Id
+    transaction_id: u32,
+    /// 64-bit Transaction Id
+    connection_id: u64,
+}
+
+struct UdpMessageCodec;
+
+impl Encoder<UdpConnectRequest> for UdpMessageCodec {
+    type Error = tokio::io::Error;
+
+    fn encode(&mut self, item: UdpConnectRequest, dst: &mut BytesMut) -> tokio::io::Result<()> {
+        let mut buf = [0; 16];
+        NetworkEndian::write_u64(&mut buf, item.protocol_id); 
+        NetworkEndian::write_u32(&mut  buf, item.action);
+        NetworkEndian::write_u32(&mut buf , item.transaction_id);
+        dst.extend_from_slice(&buf);
+        Ok(())
+    }
+}
+
+impl Decoder for UdpMessageCodec {
+    type Error = tokio::io::Error;
+
+    type Item = UdpConnectResponse;
+
+    fn decode(&mut self, src: &mut BytesMut) -> tokio::io::Result<Option<Self::Item>> {
+        if src.len() < 16 {
+            return Ok(None);
+        }
+
+        let action = src.get_u32();
+        let transaction_id = src.get_u32();
+        let connection_id = src.get_u64();
+
+        let response = UdpConnectResponse {
+            action,
+            transaction_id,
+            connection_id,
+        };
+
+        Ok(Some(response))
+    }
+}
 
 impl Query {
     pub fn new(map: HashMap<String, String>) -> Self {
@@ -32,20 +115,19 @@ impl Into<String> for Query {
     fn into(self) -> String {
         let map = self.0;
         let mut res = String::new();
-       
-        for (key,value) in map.iter() {
+
+        for (key, value) in map.iter() {
             if res.is_empty() {
-                res+=key;
-                res+="=";
-                res+=value;
+                res += key;
+                res += "=";
+                res += value;
             }
 
-            res+="&";
-            res+=key;
-            res+="=";
-            res+=value;
+            res += "&";
+            res += key;
+            res += "=";
+            res += value;
         }
-        println!("{}",res);
         res
     }
 }
@@ -59,7 +141,11 @@ pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>
 }
 
 fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
-    Box::new(UdpSession { url })
+    Box::new(UdpSession {
+        url,
+        connection_id: None,
+        transaction_id: None,
+    })
 }
 
 fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
@@ -78,16 +164,75 @@ fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T
 
 #[async_trait]
 pub trait Session<T: Into<Query>> {
-    async fn send(&self, message: T) -> Result<Bytes>;
+    async fn send(&mut self, message: T) -> Result<Bytes>;
 }
 
 struct UdpSession {
     url: Url,
+    connection_id: Option<u64>,
+    transaction_id: Option<u32>,
+}
+
+impl UdpSession {
+    async fn connect(&mut self) -> Result<()> {
+        let socket_addrs = self.url.socket_addrs(|| None)?;
+
+        for addr in socket_addrs.iter() {
+            let response = Self::connect_to_addr(*addr).await?;
+            
+            self.transaction_id = Some(response.transaction_id);
+
+            self.connection_id = Some(response.connection_id);
+        }
+
+        Ok(())
+    }
+
+    async fn connect_to_addr(addr: SocketAddr) -> Result<UdpConnectResponse> {
+        let socket = UdpSocket::bind("0.0.0.0:8080").await?;
+
+        socket.connect(addr).await?;
+
+        let mut socket = UdpFramed::new(socket, UdpMessageCodec);
+
+        for n in 0..=8 {
+            let t = 15 * 2_u64.pow(n);
+
+            let timeout_duration = Duration::from_secs(t);
+
+            let request = UdpConnectRequest::new();
+
+            socket.send((request, addr)).await?; 
+
+            match timeout(timeout_duration, socket.next()).await {
+                Ok(res) => {
+                    if let Some(res) = res {
+                       let (response, _) = res?; 
+
+                        return Ok(response)
+                    } 
+
+                    continue;
+                }
+
+                Err(_) => continue,
+            }
+        }
+
+        Err(ConnectionError::Custom("Timed out".to_string()))
+    }
 }
 
 #[async_trait]
-impl<T: Into<Query> + Send + 'static> Session<T> for UdpSession {
-    async fn send(&self, _message: T) -> Result<Bytes> {
+impl<T> Session<T> for UdpSession
+where
+    T: Into<Query> + Send + 'static,
+{
+    async fn send(&mut self, _message: T) -> Result<Bytes> {
+        if let (None, None) = (self.transaction_id, self.connection_id) {
+            self.connect().await?;
+        }
+
         let slice = Vec::new();
         let res = Bytes(slice);
         Ok(res)
@@ -124,13 +269,14 @@ where
         match status_code {
             StatusCode::OK => Self::process_body(response).await,
             StatusCode::BAD_REQUEST => Err(ConnectionError::Custom("HTTP Bad request".to_string())),
-            StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT => self.handle_redirect(response).await,
+            StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT => {
+                self.handle_redirect(response).await
+            }
             _ => Self::process_body(response).await,
         }
     }
 
     async fn handle_redirect(&self, response: Response<Body>) -> Result<Bytes> {
-
         Self::process_body(response).await
     }
 
@@ -153,7 +299,7 @@ where
     T: Into<Query> + Send + 'static,
     K: Connect + Clone + Send + Sync + 'static,
 {
-    async fn send(&self, message: T) -> Result<Bytes> {
+    async fn send(&mut self, message: T) -> Result<Bytes> {
         Ok(self.send_message(message).await?)
     }
 }

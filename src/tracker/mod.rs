@@ -96,6 +96,9 @@ pub fn get_trackers(torrent: &Torrent) -> Result<Vec<Tracker>, Error> {
             let url = Url::parse(a[0].as_str())?;
             trackers.push(Tracker::new(url, torrent));
         }
+    } else if let Some(announce) = &torrent.announce  {
+        let url = Url::parse(announce.as_str())?;
+        trackers.push(Tracker::new(url, torrent));
     }
 
     Ok(trackers)
@@ -405,12 +408,10 @@ mod tests {
 
     use super::*;
 
-    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-    const BENCODE: &str = "d8:intervali1800e5:peersld2:ip13:192.168.189.14:porti20111eeee";
-
     #[tokio::test]
-    async fn test_deserealize_response() -> Result<()> {
-        serde_bencode::de::from_str::<TrackerResponse>(BENCODE)?;
-        Ok(())
+    #[should_panic]
+    async fn test_deserealize_response() {
+        let bencode = b"d8:intervali1800e5:peersld2:ip13:192.168.189.14:porti20111eeee";
+        serde_bencode::de::from_bytes::<TrackerResponse>(bencode).unwrap();
     }
 }

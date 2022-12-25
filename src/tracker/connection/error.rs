@@ -3,6 +3,7 @@ use serde_bencode::Error as BencodeError;
 use std::{
     error::Error,
     fmt::{self, Debug},
+    io::Error as IoError,
 };
 use url::ParseError;
 
@@ -49,6 +50,12 @@ impl From<HyperHttpError> for ConnectionError {
 
 impl From<ParseError> for ConnectionError {
     fn from(value: ParseError) -> Self {
+        Self::Other(value.to_string())
+    }
+}
+
+impl From<IoError> for ConnectionError {
+    fn from(value: IoError) -> Self {
         Self::Other(value.to_string())
     }
 }
