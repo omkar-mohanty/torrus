@@ -1,5 +1,5 @@
 use ferrotorr::*;
-use metainfo::{render_torrent, Torrent};
+use metainfo::{render_torrent, Metainfo};
 use std::{env, error::Error, fs};
 use tracker::get_trackers;
 
@@ -8,7 +8,11 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 async fn main() -> Result<()> {
     if let Some(path) = env::args().nth(1) {
         let buffer = fs::read(path)?;
-        let torrent = Torrent::from_bytes(&buffer)?;
+        let torrent = Metainfo::from_bytes(&buffer)?;
+        println!(
+            "Total pieces = {} ",
+            torrent.info.length / torrent.info.piece_length
+        );
         if env::args().nth(2).is_some() {
             render_torrent(&torrent);
         }

@@ -1,4 +1,4 @@
-use crate::metainfo::Torrent;
+use crate::metainfo::Metainfo;
 use byteorder::ByteOrder;
 use rand::Rng;
 use serde::Deserializer;
@@ -34,11 +34,11 @@ pub struct Tracker<'a> {
     id: Option<ByteBuf>,
     alive: TrackerState,
     session: Box<dyn Session<TrackerRequest>>,
-    torrent: &'a Torrent,
+    torrent: &'a Metainfo,
 }
 
 impl<'a> Tracker<'a> {
-    fn new(url: Url, torrent: &'a Torrent) -> Self {
+    fn new(url: Url, torrent: &'a Metainfo) -> Self {
         let session = from_url(url);
         Self {
             id: None,
@@ -88,7 +88,7 @@ impl<'a> Tracker<'a> {
     }
 }
 
-pub fn get_trackers(torrent: &Torrent) -> Result<Vec<Tracker>, Error> {
+pub fn get_trackers(torrent: &Metainfo) -> Result<Vec<Tracker>, Error> {
     let mut trackers = Vec::new();
 
     if let Some(al) = &torrent.announce_list {
@@ -96,7 +96,7 @@ pub fn get_trackers(torrent: &Torrent) -> Result<Vec<Tracker>, Error> {
             let url = Url::parse(a[0].as_str())?;
             trackers.push(Tracker::new(url, torrent));
         }
-    } else if let Some(announce) = &torrent.announce  {
+    } else if let Some(announce) = &torrent.announce {
         let url = Url::parse(announce.as_str())?;
         trackers.push(Tracker::new(url, torrent));
     }

@@ -4,20 +4,19 @@ use async_trait::async_trait;
 use byteorder::{ByteOrder, NetworkEndian};
 use bytes::{Buf, BytesMut};
 use error::ConnectionError;
-use futures::{SinkExt, StreamExt};
 use hyper::body::HttpBody;
 use hyper::{client::connect::Connect, Body, Client};
 use hyper::{Response, StatusCode};
 use hyper_tls::HttpsConnector;
 use rand::Rng;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder};
-use tokio_util::udp::UdpFramed;
 use url::Url;
 
 type Result<T> = std::result::Result<T, ConnectionError>;
@@ -32,6 +31,20 @@ struct UdpConnectRequest {
     action: u32,
     /// 64-bit Transaction Id
     transaction_id: u32,
+}
+
+impl Into<BytesMut> for UdpConnectRequest {
+    fn into(self) -> BytesMut {
+        let mut bytes = BytesMut::new();
+
+        let mut buf = [0; 16];
+        NetworkEndian::write_u64(&mut buf, self.protocol_id);
+        NetworkEndian::write_u32(&mut buf, self.action);
+        NetworkEndian::write_u32(&mut buf, self.transaction_id);
+
+        bytes.extend_from_slice(&buf);
+        bytes
+    }
 }
 
 impl UdpConnectRequest {
@@ -66,9 +79,9 @@ impl Encoder<UdpConnectRequest> for UdpMessageCodec {
 
     fn encode(&mut self, item: UdpConnectRequest, dst: &mut BytesMut) -> tokio::io::Result<()> {
         let mut buf = [0; 16];
-        NetworkEndian::write_u64(&mut buf, item.protocol_id); 
-        NetworkEndian::write_u32(&mut  buf, item.action);
-        NetworkEndian::write_u32(&mut buf , item.transaction_id);
+        NetworkEndian::write_u64(&mut buf, item.protocol_id);
+        NetworkEndian::write_u32(&mut buf, item.action);
+        NetworkEndian::write_u32(&mut buf, item.transaction_id);
         dst.extend_from_slice(&buf);
         Ok(())
     }
@@ -179,7 +192,7 @@ impl UdpSession {
 
         for addr in socket_addrs.iter() {
             let response = Self::connect_to_addr(*addr).await?;
-            
+
             self.transaction_id = Some(response.transaction_id);
 
             self.connection_id = Some(response.connection_id);
@@ -191,10 +204,6 @@ impl UdpSession {
     async fn connect_to_addr(addr: SocketAddr) -> Result<UdpConnectResponse> {
         let socket = UdpSocket::bind("0.0.0.0:8080").await?;
 
-        socket.connect(addr).await?;
-
-        let mut socket = UdpFramed::new(socket, UdpMessageCodec);
-
         for n in 0..=8 {
             let t = 15 * 2_u64.pow(n);
 
@@ -202,15 +211,17 @@ impl UdpSession {
 
             let request = UdpConnectRequest::new();
 
-            socket.send((request, addr)).await?; 
+            let request_bytes = Into::<BytesMut>::into(request);
 
-            match timeout(timeout_duration, socket.next()).await {
+            socket.send_to(&request_bytes, addr).await?;
+
+            let mut buf = BytesMut::new();
+            match timeout(timeout_duration, socket.recv(&mut buf)).await {
                 Ok(res) => {
-                    if let Some(res) = res {
-                       let (response, _) = res?; 
-
-                        return Ok(response)
-                    } 
+                    if let Ok(_) = res {
+                        let response = Self::parse_response_message(buf);
+                        return Ok(response);
+                    }
 
                     continue;
                 }
@@ -220,6 +231,20 @@ impl UdpSession {
         }
 
         Err(ConnectionError::Custom("Timed out".to_string()))
+    }
+
+    fn parse_response_message(buf: BytesMut) -> UdpConnectResponse {
+        let mut cursor = Cursor::new(buf);
+
+        let action = cursor.get_u32();
+        let transaction_id = cursor.get_u32();
+        let connection_id = cursor.get_u64();
+
+        UdpConnectResponse {
+            action,
+            transaction_id,
+            connection_id,
+        }
     }
 }
 

@@ -6,7 +6,7 @@ pub struct HandShake {}
 pub struct HandShakeCodec;
 
 /// All messages except the 'Handshake' message as described in Wire Protocol
-pub enum WireMessage {
+pub enum Message {
     KeepAlive,
     Choke,
     Unchoke,
@@ -22,17 +22,17 @@ pub enum WireMessage {
 
 pub struct PeerCodec;
 
-impl Encoder<WireMessage> for PeerCodec {
+impl Encoder<Message> for PeerCodec {
     type Error = Error;
 
-    fn encode(&mut self, item: WireMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Message, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         todo!();
     }
 }
 
 impl Decoder for PeerCodec {
     type Error = Error;
-    type Item = WireMessage;
+    type Item = Message;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         todo!()

@@ -54,7 +54,7 @@ impl Info {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Torrent {
+pub struct Metainfo {
     pub info: Info,
     #[serde(default)]
     pub announce: Option<String>,
@@ -77,13 +77,13 @@ pub struct Torrent {
     pub created_by: Option<String>,
 }
 
-impl Torrent {
+impl Metainfo {
     pub fn from_bytes(v: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(serde_bencode::de::from_bytes::<Torrent>(v)?)
+        Ok(serde_bencode::de::from_bytes::<Metainfo>(v)?)
     }
 }
 
-pub fn render_torrent(torrent: &Torrent) {
+pub fn render_torrent(torrent: &Metainfo) {
     println!("name:\t\t{}", torrent.info.name);
     println!("announce:\t{:?}", torrent.announce);
     println!("nodes:\t\t{:?}", torrent.nodes);
@@ -113,7 +113,7 @@ mod tests {
     #[tokio::test]
     async fn test_from_bytes() -> Result<()> {
         let file = std::fs::read(FILEPATH)?;
-        Torrent::from_bytes(&file)?;
+        Metainfo::from_bytes(&file)?;
         Ok(())
     }
 }
