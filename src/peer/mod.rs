@@ -1,12 +1,14 @@
-mod message;
+mod error;
+mod message_codec;
 mod session;
 mod state;
 
-use message::*;
+use error::*;
+use crate::message::Message;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-pub(crate) type Sender = UnboundedSender<PeerCodec>;
-pub(crate) type Receiver = UnboundedReceiver<PeerCodec>;
+pub(crate) type Sender = UnboundedSender<Message>;
+pub(crate) type Receiver = UnboundedReceiver<Message>;
 pub(crate) type IoResult<T> = tokio::io::Result<T>;
 
 /// The client can initiate a 'Outbound' connection

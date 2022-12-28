@@ -166,30 +166,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ferrotorr"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bitvec",
- "byteorder",
- "bytes",
- "futures",
- "hyper",
- "hyper-tls",
- "mockito",
- "percent-encoding",
- "rand",
- "serde",
- "serde_bencode",
- "serde_bytes",
- "serde_derive",
- "sha1",
- "tokio",
- "tokio-util",
- "url",
-]
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1029,6 +1005,30 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "torrus"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitvec",
+ "byteorder",
+ "bytes",
+ "futures",
+ "hyper",
+ "hyper-tls",
+ "mockito",
+ "percent-encoding",
+ "rand",
+ "serde",
+ "serde_bencode",
+ "serde_bytes",
+ "serde_derive",
+ "sha1",
+ "tokio",
+ "tokio-util",
+ "url",
 ]
 
 [[package]]

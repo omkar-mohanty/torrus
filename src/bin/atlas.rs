@@ -1,6 +1,6 @@
-use ferrotorr::*;
 use metainfo::{render_torrent, Metainfo};
 use std::{env, error::Error, fs};
+use torrus::*;
 use tracker::get_trackers;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;

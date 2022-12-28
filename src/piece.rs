@@ -1,9 +1,4 @@
-use bitvec::prelude::*;
-
-/// 0 indexed Bitfield which represents the pieces which the client has and does not have
-pub type Bitfield = BitVec<u8, Msb0>;
-type PieceIndex = usize;
-type Hash = [u8; 20];
+use crate::{Bitfield, PieceIndex, Hash};
 
 /// Tracks all the pieces in the current torrent.
 pub struct PieceTracker {
@@ -18,7 +13,7 @@ pub struct PieceTracker {
 }
 
 /// Represents an individual piece in a torrent.
-#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Eq)]
+#[derive(Clone, Default, PartialEq, PartialOrd, Eq)]
 struct Piece {
     /// The index of the piece in the bitfield
     pub index: PieceIndex,
@@ -44,7 +39,7 @@ impl PieceTracker {
         }
     }
 
-    pub fn miss_count(&self) ->usize {
+    pub fn miss_count(&self) -> usize {
         self.miss_count
     }
 
