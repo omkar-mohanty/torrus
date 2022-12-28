@@ -1,12 +1,5 @@
 use std::error::Error;
 
-#[macro_export]
-macro_rules! err{
-    ($err:expr) => {
-       return Err(ToorrusError::new($err)) 
-    };
-}
-
 #[derive(Debug)]
 pub struct TorrusError(String);
 

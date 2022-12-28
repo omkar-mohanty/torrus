@@ -1,10 +1,9 @@
-use super::{PeerError, Receiver, Sender};
+use crate::{Sender, Receiver};
 use crate::message::{Message, PeerCodec};
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_util::codec::Framed;
-
-type Result<T> = std::result::Result<T, PeerError>;
+use crate::Result;
 
 /// Responsible for passing `Message` between client and peer.
 pub struct PeerSession {
