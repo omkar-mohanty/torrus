@@ -1,9 +1,9 @@
-use crate::{Sender, Receiver};
 use crate::message::{Message, PeerCodec};
+use crate::Result;
+use crate::{Receiver, Sender};
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_util::codec::Framed;
-use crate::Result;
 
 /// Responsible for passing `Message` between client and peer.
 pub struct PeerSession {
@@ -66,23 +66,9 @@ impl PeerSession {
 #[cfg(test)]
 mod tests {
 
-    use std::{net::SocketAddr, str::FromStr};
-
-    use tokio::net::TcpListener;
-    use tokio_util::codec::{Decoder, Encoder};
-
     use super::*;
-
-    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-    impl Encoder<String> for PeerCodec {
-        type Error = tokio::io::Error;
-
-        fn encode(&mut self, item: String, dst: &mut bytes::BytesMut) -> tokio::io::Result<()> {
-            dst.extend_from_slice(item.as_bytes());
-            Ok(())
-        }
-    }
+    use std::{net::SocketAddr, str::FromStr};
+    use tokio::net::TcpListener;
 
     async fn start_tcp(port: u16) -> SocketAddr {
         let addr = format!("127.0.0.1:{}", port);

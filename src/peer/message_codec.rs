@@ -1,9 +1,9 @@
 use super::PeerError;
 use crate::{
-    Bitfield,PieceIndex,    block::{Block, BlockInfo},
-    message::{Message, MessageID, Handshake, PeerCodec}, error::TorrusError
+    block::{Block, BlockInfo},
+    message::{Handshake, Message, MessageID, PeerCodec},
+    Bitfield, PieceIndex,
 };
-
 use bytes::{Buf, BufMut};
 use tokio::io::Error;
 use tokio_util::codec::{Decoder, Encoder};
@@ -38,17 +38,20 @@ impl Decoder for HandShakeCodec {
         let pstrlen = src.get_u8();
         assert_eq!(pstrlen, 19);
 
-        let pstr = &src[..19];
+        let mut pstr = vec![0; 19];
+        src.copy_to_slice(&mut pstr);
         assert_eq!(pstr, PROTOCOL.as_bytes());
 
-        src.advance(19);
-        let reserved = src.get_u64();
+        let mut reserved = vec![0; 8];
+        src.copy_to_slice(&mut reserved);
 
-        let info_hash = src[..20].to_vec();
-        src.advance(20);
-        let peer_id = src[..20].to_vec();
+        let mut info_hash =vec![0; 20];
+        src.copy_to_slice(&mut info_hash);
+        let mut peer_id = vec![0; 20];
+        src.copy_to_slice(&mut peer_id);
 
-        let res = Some(Handshake { info_hash, peer_id });
+        assert_eq!(src.remaining(), 0);
+        let res = Some(Handshake { info_hash, peer_id, reserved });
 
         Ok(res)
     }
@@ -136,7 +139,7 @@ impl Encoder<Message> for PeerCodec {
 }
 
 impl Decoder for PeerCodec {
-    type Error = TorrusError;
+    type Error = PeerError;
     type Item = Message;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -176,7 +179,6 @@ impl Decoder for PeerCodec {
                 let index = src.get_u32() as usize;
                 let begin = src.get_u32();
                 let length = src.get_u32();
-
                 Message::Request {
                     index,
                     begin,
@@ -187,9 +189,10 @@ impl Decoder for PeerCodec {
                 let data = vec![0; (len - 9) as usize];
                 let index = src.get_u32() as usize;
                 let begin = src.get_u32();
-                let block_info = BlockInfo{
-                piece_index: index,
-                begin};
+                let block_info = BlockInfo {
+                    piece_index: index,
+                    begin,
+                };
                 let block = Block::new(block_info, data);
                 Message::Piece {
                     index,

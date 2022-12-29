@@ -17,10 +17,7 @@ pub struct Block {
 impl Block {
     pub fn new(block_info: BlockInfo, data: impl Into<BlockData>) -> Self {
         let data = Into::<BlockData>::into(data);
-        Self {
-            block_info,
-            data,
-        }
+        Self { block_info, data }
     }
 
     pub fn piece_index(&self) -> PieceIndex {
@@ -45,5 +42,5 @@ pub struct BlockInfo {
     /// Index of the piece within the bitfield.
     pub piece_index: PieceIndex,
     /// The offset in bytes within int 'Piece'
-    pub begin: u32
+    pub begin: u32,
 }

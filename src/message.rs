@@ -1,9 +1,10 @@
-use crate::{PeerId, Hash, Bitfield, PieceIndex, block::Block, error::TorrusError};
+use crate::{block::Block, error::TorrusError, Bitfield, Hash, PeerId, PieceIndex};
 
 /// Struct representing the 'Handshake' of the Bittorrent protocol
 pub struct Handshake {
     pub peer_id: PeerId,
     pub info_hash: Hash,
+    pub reserved: Vec<u8>,
 }
 
 impl Handshake {
@@ -75,5 +76,3 @@ impl TryFrom<u8> for MessageID {
         }
     }
 }
-
-

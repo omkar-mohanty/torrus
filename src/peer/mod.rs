@@ -1,9 +1,8 @@
-mod error;
 mod message_codec;
 mod session;
 mod state;
 
-use crate::error::TorrusError as PeerError;  
+use crate::error::TorrusError as PeerError;
 
 /// The client can initiate a 'Outbound' connection
 /// The peer can initiate an 'Inbound' connection

@@ -1,4 +1,4 @@
-use crate::{Bitfield, PieceIndex, Hash};
+use crate::{Bitfield, Hash, PieceIndex};
 
 /// Tracks all the pieces in the current torrent.
 pub struct PieceTracker {
