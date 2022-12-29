@@ -6,7 +6,7 @@ pub(crate) const BLOCK_SIZE: u32 = 0x4000;
 
 pub type BlockData = Vec<u8>;
 /// Represents a block of data sent between peers
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     /// Represents the information about the block
     pub block_info: BlockInfo,
@@ -37,7 +37,7 @@ impl Deref for Block {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockInfo {
     /// Index of the piece within the bitfield.
     pub piece_index: PieceIndex,

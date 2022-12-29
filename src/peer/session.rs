@@ -70,7 +70,7 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr};
     use tokio::net::TcpListener;
 
-    async fn start_tcp(port: u16) -> SocketAddr {
+    async fn start_tcp(port: u16, msg: Message) -> SocketAddr {
         let addr = format!("127.0.0.1:{}", port);
 
         tokio::spawn(async move {
@@ -84,15 +84,14 @@ mod tests {
 
             loop {
                 tokio::select! {
-                    _ = sink.send(Message::Choke) => {
-
+                    _ = sink.send(msg.clone()) => {
                     }
 
                     msg = stream.next() => {
                          if let Some(msg)=  msg {
 
                          let msg = msg.unwrap();
-                        println!("Got message");
+
                         sink.send(msg).await.unwrap();
                     }
 
@@ -105,8 +104,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handshake() -> Result<()> {
-        let addr = start_tcp(8080).await;
+    async fn test_msg() -> Result<()> {
+        let msg = Message::Choke;
+        let addr = start_tcp(8080, msg).await;
 
         let mut stream = TcpStream::connect(addr).await;
 
@@ -131,9 +131,7 @@ mod tests {
         }
 
         let msg = msg.unwrap();
-        match msg {
-            Message::Choke => return Ok(()),
-            _ => panic!("Not corrent message"),
-        }
+        matches!(msg, Message::Choke);
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 use super::PeerError;
 use crate::{
-    block::{Block, BlockInfo},
+    block::{Block, BlockInfo, BLOCK_SIZE},
     message::{Handshake, Message, MessageID, PeerCodec},
     Bitfield, PieceIndex,
 };
@@ -19,7 +19,7 @@ impl Encoder<Handshake> for HandShakeCodec {
         assert_eq!(19, PROTOCOL.len());
         dst.put_u8(PROTOCOL.len() as u8);
         dst.put_slice(PROTOCOL.as_bytes());
-        dst.put_u64(0);
+        dst.put_slice(&item.reserved);
         dst.put_slice(&item.info_hash);
         dst.put_slice(&item.peer_id);
         Ok(())
@@ -36,22 +36,40 @@ impl Decoder for HandShakeCodec {
         }
 
         let pstrlen = src.get_u8();
-        assert_eq!(pstrlen, 19);
 
-        let mut pstr = vec![0; 19];
+        if pstrlen != 19 {
+            let err_msg = format!(
+                "The length of the protocol identifier must be 19 but it is {}",
+                pstrlen
+            );
+            return Err(PeerError::new(&err_msg));
+        }
+
+        let mut pstr = vec![0_u8; 19];
         src.copy_to_slice(&mut pstr);
-        assert_eq!(pstr, PROTOCOL.as_bytes());
 
-        let mut reserved = vec![0; 8];
+        let mut reserved = vec![0_u8; 8];
         src.copy_to_slice(&mut reserved);
 
-        let mut info_hash =vec![0; 20];
+        let mut info_hash = vec![0_u8; 20];
         src.copy_to_slice(&mut info_hash);
-        let mut peer_id = vec![0; 20];
+        let mut peer_id = vec![0_u8; 20];
         src.copy_to_slice(&mut peer_id);
 
-        assert_eq!(src.remaining(), 0);
-        let res = Some(Handshake { info_hash, peer_id, reserved });
+        if src.remaining() > 0 {
+            let err_msg = format!(
+                "The handshake message must be exactly {} long but {} bytes still remaining",
+                Handshake::len(),
+                src.remaining()
+            );
+            return Err(PeerError::new(&err_msg));
+        }
+
+        let res = Some(Handshake {
+            info_hash,
+            peer_id,
+            reserved,
+        });
 
         Ok(res)
     }
@@ -105,15 +123,11 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u32(begin);
                 dst.put_u32(length);
             }
-            Piece {
-                index,
-                begin,
-                block,
-            } => {
-                dst.put_u32((1 + block.data.len()) as u32);
+            Piece(block) => {
+                dst.put_u32((9 + block.data.len()) as u32);
                 dst.put_u8(MessageID::Piece as u8);
-                dst.put_u32(index as u32);
-                dst.put_u32(begin as u32);
+                dst.put_u32(block.block_info.piece_index as u32);
+                dst.put_u32(block.block_info.begin as u32);
                 dst.extend_from_slice(&block);
             }
             Cancel {
@@ -152,11 +166,11 @@ impl Decoder for PeerCodec {
             return Ok(Some(Message::KeepAlive));
         }
 
-        let id = src.get_u8();
-
         if src.remaining() < len as usize {
             return Ok(None);
         }
+
+        let id = src.get_u8();
 
         let message_id = MessageID::try_from(id)?;
 
@@ -186,19 +200,21 @@ impl Decoder for PeerCodec {
                 }
             }
             MessageID::Piece => {
-                let data = vec![0; (len - 9) as usize];
+                if len - 9 > BLOCK_SIZE {
+                    return Err(PeerError::new(
+                        "The length of the BLOCK exceeds maximum allowed block size",
+                    ));
+                }
+                let mut data = vec![0; (len - 9) as usize];
                 let index = src.get_u32() as usize;
                 let begin = src.get_u32();
+                src.copy_to_slice(&mut data);
                 let block_info = BlockInfo {
                     piece_index: index,
                     begin,
                 };
                 let block = Block::new(block_info, data);
-                Message::Piece {
-                    index,
-                    begin,
-                    block,
-                }
+                Message::Piece(block)
             }
             MessageID::Cancel => {
                 let index = src.get_u32() as usize;
@@ -218,5 +234,161 @@ impl Decoder for PeerCodec {
         };
 
         Ok(Some(msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{block::BLOCK_SIZE, Result};
+    use bytes::BytesMut;
+    use rand::{thread_rng, Rng};
+
+    fn fixed_len_message(id: u8) -> Message {
+        match id {
+            0 => Message::KeepAlive,
+            1 => Message::Choke,
+            2 => Message::Unchoke,
+            3 => Message::Interested,
+            4 => Message::NotInterested,
+            5 => Message::Have(12),
+            6 => Message::Request {
+                index: 12,
+                begin: 12,
+                length: 12,
+            },
+            7 => Message::Cancel {
+                index: 12,
+                begin: 12,
+                length: 12,
+            },
+            8 => Message::Port(8080),
+            _ => Message::KeepAlive,
+        }
+    }
+
+    fn correct_handshake() -> Handshake {
+        let peer_id = thread_rng().gen::<[u8; 20]>().to_vec();
+        let hash = thread_rng().gen::<[u8; 20]>().to_vec();
+        let reserved = thread_rng().gen::<[u8; 8]>().to_vec();
+        Handshake::new(peer_id, hash, reserved)
+    }
+
+    fn incorrect_handshake() -> BytesMut {
+        let random_len = thread_rng().gen_range(8..20);
+        let peer_id = thread_rng().gen::<[u8; 20]>().to_vec();
+        let hash = thread_rng().gen::<[u8; 20]>().to_vec();
+        let mut reserved = Vec::new();
+
+        for _ in 1..=random_len {
+            reserved.push(0);
+        }
+        let handshake = Handshake::new(peer_id, hash, reserved);
+        let mut dst = BytesMut::new();
+        HandShakeCodec.encode(handshake, &mut dst).unwrap();
+        dst
+    }
+
+    #[tokio::test]
+    async fn test_handshake() -> Result<()> {
+        let handshake = correct_handshake();
+        let mut dst = BytesMut::new();
+        HandShakeCodec.encode(handshake, &mut dst)?;
+
+        assert_eq!(
+            dst.len(),
+            Handshake::len(),
+            "The length of the handshake after encoding must be {} bytes long",
+            Handshake::len()
+        );
+
+        HandShakeCodec.decode(&mut dst)?.unwrap();
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_incorrect_handshake() {
+        let mut dst = incorrect_handshake();
+        HandShakeCodec.decode(&mut dst).unwrap();
+    }
+
+    /// After decoding the buffer must have zero bytes remaining.
+    #[test]
+    fn test_message_codec() -> Result<()> {
+        for id in 0..=8 {
+            let msg = fixed_len_message(id);
+            let mut dst = BytesMut::new();
+
+            PeerCodec.encode(msg, &mut dst)?;
+            let msg = PeerCodec.decode(&mut dst)?.unwrap();
+
+            assert_eq!(
+                dst.remaining(),
+                0,
+                "Number of bytes in buffer not zero for message : {}",
+                msg
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_bitfield_codec() -> Result<()> {
+        let bitfield = Bitfield::new();
+        let msg = Message::Bitfield(bitfield);
+        let mut dst = BytesMut::new();
+        PeerCodec.encode(msg, &mut dst)?;
+        let msg = PeerCodec.decode(&mut dst)?.unwrap();
+
+        matches!(msg, Message::Bitfield(_));
+        assert_eq!(
+            dst.remaining(),
+            0,
+            "After decoding the remaining bytes must be 0"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_piece_codec() -> Result<()> {
+        let block_info = BlockInfo {
+            piece_index: 12,
+            begin: 12,
+        };
+        let data_len = thread_rng().gen_range(0..BLOCK_SIZE);
+        let mut data = Vec::new();
+        for _ in 0..=data_len {
+            data.push(thread_rng().gen::<u8>());
+        }
+        let block = Block::new(block_info, data);
+        let mut dst = BytesMut::new();
+        let msg = Message::Piece(block);
+        PeerCodec.encode(msg, &mut dst)?;
+        let msg = PeerCodec.decode(&mut dst)?.unwrap();
+        matches!(msg, Message::Piece { .. });
+        assert_eq!(dst.remaining(), 0);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_block_size()  {
+        let block_info = BlockInfo {
+            piece_index: 12,
+            begin: 12,
+        };
+        let data_len = BLOCK_SIZE + 1;
+        let mut data = Vec::new();
+        for _ in 0..=data_len {
+            data.push(thread_rng().gen::<u8>());
+        }
+        let block = Block::new(block_info, data);
+        let mut dst = BytesMut::new();
+        let msg = Message::Piece(block);
+        PeerCodec.encode(msg, &mut dst).unwrap();
+        let msg = PeerCodec.decode(&mut dst).unwrap().unwrap();
+        matches!(msg, Message::Piece { .. });
+        assert_eq!(dst.remaining(), 0);
     }
 }
