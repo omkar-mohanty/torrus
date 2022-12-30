@@ -78,10 +78,14 @@ impl Decoder for HandShakeCodec {
 impl Encoder<Message> for PeerCodec {
     type Error = Error;
 
+    /// The messages described as per Bittorrent protocol is <length prefix><message ID>
+    /// length prefix : 4 bytes
+    /// message ID : 1 byte
     fn encode(&mut self, item: Message, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         use Message::*;
         match item {
             KeepAlive => {
+                // KeepAlive message length prefix is always 0
                 dst.put_u32(0);
             }
             Choke => {
@@ -106,6 +110,7 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u32(index as u32);
             }
             Bitfield(bitfield) => {
+                // 'biffield.len()' gives total number of bits but we want length in bytes.
                 let field_length = 1 + bitfield.len() / 8;
 
                 dst.put_u32(field_length as u32);
@@ -124,6 +129,7 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u32(length);
             }
             Piece(block) => {
+                // 1 byte Message ID + 4 bytes piece index + 4 bytes offset = 9 bytes fixed
                 dst.put_u32((9 + block.data.len()) as u32);
                 dst.put_u8(MessageID::Piece as u8);
                 dst.put_u32(block.block_info.piece_index as u32);
@@ -200,6 +206,8 @@ impl Decoder for PeerCodec {
                 }
             }
             MessageID::Piece => {
+                // 9 bytes is fixed in all 'Piece' messages the actual paylod length is always
+                // data_len = len - 9.
                 if len - 9 > BLOCK_SIZE {
                     return Err(PeerError::new(
                         "The length of the BLOCK exceeds maximum allowed block size",
@@ -336,8 +344,10 @@ mod tests {
     #[test]
     fn test_bitfield_codec() -> Result<()> {
         let bitfield = Bitfield::new();
+
         let msg = Message::Bitfield(bitfield);
         let mut dst = BytesMut::new();
+
         PeerCodec.encode(msg, &mut dst)?;
         let msg = PeerCodec.decode(&mut dst)?.unwrap();
 
@@ -356,16 +366,21 @@ mod tests {
             piece_index: 12,
             begin: 12,
         };
+
         let data_len = thread_rng().gen_range(0..BLOCK_SIZE);
         let mut data = Vec::new();
+
         for _ in 0..=data_len {
             data.push(thread_rng().gen::<u8>());
         }
+
         let block = Block::new(block_info, data);
         let mut dst = BytesMut::new();
         let msg = Message::Piece(block);
         PeerCodec.encode(msg, &mut dst)?;
+
         let msg = PeerCodec.decode(&mut dst)?.unwrap();
+
         matches!(msg, Message::Piece { .. });
         assert_eq!(dst.remaining(), 0);
         Ok(())
@@ -373,22 +388,27 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_incorrect_block_size()  {
+    fn test_incorrect_block_size() {
         let block_info = BlockInfo {
             piece_index: 12,
             begin: 12,
         };
+
         let data_len = BLOCK_SIZE + 1;
         let mut data = Vec::new();
+
         for _ in 0..=data_len {
             data.push(thread_rng().gen::<u8>());
         }
+
         let block = Block::new(block_info, data);
         let mut dst = BytesMut::new();
         let msg = Message::Piece(block);
         PeerCodec.encode(msg, &mut dst).unwrap();
+
         let msg = PeerCodec.decode(&mut dst).unwrap().unwrap();
         matches!(msg, Message::Piece { .. });
+
         assert_eq!(dst.remaining(), 0);
     }
 }

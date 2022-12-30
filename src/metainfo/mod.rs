@@ -108,7 +108,7 @@ mod tests {
     use super::*;
 
     type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-    const FILEPATH: &str = "./torrents/ubuntu-22.10-desktop-amd64.iso.torrent";
+    const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
 
     #[tokio::test]
     async fn test_from_bytes() -> Result<()> {
