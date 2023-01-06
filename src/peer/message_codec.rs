@@ -1,16 +1,17 @@
 use super::PeerError;
 use crate::{
     block::{Block, BlockInfo, BLOCK_SIZE},
-    message::{Handshake, Message, MessageID, PeerCodec},
+    message::{Handshake, Message, MessageID},
     Bitfield, PieceIndex,
 };
 use bytes::{Buf, BufMut};
 use tokio::io::Error;
 use tokio_util::codec::{Decoder, Encoder};
 
-const PROTOCOL: &str = r"BitTorrent protocol";
+const PROTOCOL: &str = "BitTorrent protocol";
 
 pub struct HandShakeCodec;
+pub struct PeerCodec;
 
 impl Encoder<Handshake> for HandShakeCodec {
     type Error = Error;
@@ -18,10 +19,10 @@ impl Encoder<Handshake> for HandShakeCodec {
     fn encode(&mut self, item: Handshake, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         assert_eq!(19, PROTOCOL.len());
         dst.put_u8(PROTOCOL.len() as u8);
-        dst.put_slice(PROTOCOL.as_bytes());
-        dst.put_slice(&item.reserved);
-        dst.put_slice(&item.info_hash);
-        dst.put_slice(&item.peer_id);
+        dst.extend_from_slice(PROTOCOL.as_bytes());
+        dst.extend_from_slice(&item.reserved);
+        dst.extend_from_slice(&item.info_hash);
+        dst.extend_from_slice(&item.peer_id);
         Ok(())
     }
 }
@@ -45,15 +46,15 @@ impl Decoder for HandShakeCodec {
             return Err(PeerError::new(&err_msg));
         }
 
-        let mut pstr = vec![0_u8; 19];
+        let mut pstr = [0; 19];
         src.copy_to_slice(&mut pstr);
 
-        let mut reserved = vec![0_u8; 8];
+        let mut reserved = [0; 8];
         src.copy_to_slice(&mut reserved);
 
         let mut info_hash = vec![0_u8; 20];
         src.copy_to_slice(&mut info_hash);
-        let mut peer_id = vec![0_u8; 20];
+        let mut peer_id = [0; 20];
         src.copy_to_slice(&mut peer_id);
 
         if src.remaining() > 0 {
@@ -276,21 +277,16 @@ mod tests {
     }
 
     fn correct_handshake() -> Handshake {
-        let peer_id = thread_rng().gen::<[u8; 20]>().to_vec();
+        let peer_id = thread_rng().gen::<[u8; 20]>();
         let hash = thread_rng().gen::<[u8; 20]>().to_vec();
-        let reserved = thread_rng().gen::<[u8; 8]>().to_vec();
+        let reserved = thread_rng().gen::<[u8; 8]>();
         Handshake::new(peer_id, hash, reserved)
     }
 
     fn incorrect_handshake() -> BytesMut {
-        let random_len = thread_rng().gen_range(8..20);
-        let peer_id = thread_rng().gen::<[u8; 20]>().to_vec();
-        let hash = thread_rng().gen::<[u8; 20]>().to_vec();
-        let mut reserved = Vec::new();
-
-        for _ in 1..=random_len {
-            reserved.push(0);
-        }
+        let peer_id = thread_rng().gen::<[u8; 20]>();
+        let hash = thread_rng().gen::<[u8; 21]>().to_vec();
+        let reserved = [0; 8];
         let handshake = Handshake::new(peer_id, hash, reserved);
         let mut dst = BytesMut::new();
         HandShakeCodec.encode(handshake, &mut dst).unwrap();
@@ -303,6 +299,7 @@ mod tests {
         let mut dst = BytesMut::new();
         HandShakeCodec.encode(handshake, &mut dst)?;
 
+        println!("{}", dst.len());
         assert_eq!(
             dst.len(),
             Handshake::len(),

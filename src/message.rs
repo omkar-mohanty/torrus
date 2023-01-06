@@ -5,11 +5,11 @@ use crate::{block::Block, error::TorrusError, Bitfield, Hash, PeerId, PieceIndex
 pub struct Handshake {
     pub peer_id: PeerId,
     pub info_hash: Hash,
-    pub reserved: Vec<u8>,
+    pub reserved: [u8; 8],
 }
 
 impl Handshake {
-    pub fn new(peer_id: PeerId, info_hash: Hash, reserved: Vec<u8>) -> Self {
+    pub fn new(peer_id: PeerId, info_hash: Hash, reserved: [u8; 8]) -> Self {
         Self {
             peer_id,
             info_hash,
@@ -80,8 +80,6 @@ impl Display for Message {
         }
     }
 }
-
-pub struct PeerCodec;
 
 #[repr(u8)]
 pub enum MessageID {

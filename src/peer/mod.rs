@@ -1,6 +1,8 @@
-mod message_codec;
+pub mod message_codec;
 mod session;
 mod state;
+
+use message_codec::PeerCodec;
 
 use crate::error::TorrusError as PeerError;
 

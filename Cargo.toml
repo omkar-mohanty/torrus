@@ -24,3 +24,6 @@ async-trait = "0.1.60"
 futures = "0.3.25"
 tokio-util = {version = "0.7.4", features= ["codec", "net"] }
 bitvec = "1.0.1"
+log = "0.4.0"
+env_logger = "0.9.0"
+clap = {version ="4.0.32", features = ["derive"]}

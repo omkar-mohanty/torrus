@@ -1,57 +1,48 @@
 pub mod error;
 
 use async_trait::async_trait;
-use byteorder::{ByteOrder, NetworkEndian};
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use error::ConnectionError;
+use futures::{SinkExt, StreamExt};
 use hyper::body::HttpBody;
 use hyper::{client::connect::Connect, Body, Client};
 use hyper::{Response, StatusCode};
 use hyper_tls::HttpsConnector;
 use rand::Rng;
 use std::collections::HashMap;
-use std::io::Cursor;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
-use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::udp::UdpFramed;
 use url::Url;
+
+use super::{Peers, TrackerRequest, TrackerResponse};
 
 type Result<T> = std::result::Result<T, ConnectionError>;
 
 pub struct Query(HashMap<String, String>);
 pub struct Bytes(Vec<u8>);
 
-struct UdpConnectRequest {
+#[derive(Clone)]
+struct UdpRequest {
     /// 64-bit Protocol ID
     protocol_id: u64,
     /// 32-bit action i.e 'Connect' or 'Announce'
     action: u32,
     /// 64-bit Transaction Id
     transaction_id: u32,
+    /// Tracker Request if there is any
+    tracker_request: Option<TrackerRequest>,
+    /// Connection ID if already connected to tracker
+    connection_id: Option<u64>,
 }
 
-impl Into<BytesMut> for UdpConnectRequest {
-    fn into(self) -> BytesMut {
-        let mut bytes = BytesMut::new();
-
-        let mut buf = [0; 16];
-        NetworkEndian::write_u64(&mut buf, self.protocol_id);
-        NetworkEndian::write_u32(&mut buf, self.action);
-        NetworkEndian::write_u32(&mut buf, self.transaction_id);
-
-        bytes.extend_from_slice(&buf);
-        bytes
-    }
-}
-
-impl UdpConnectRequest {
+impl UdpRequest {
     fn new() -> Self {
         let transaction_id = rand::thread_rng().gen();
 
-        let protocol_id = 0x4172710198;
+        let protocol_id = 0x41727101980;
 
         let action = 0;
 
@@ -59,55 +50,184 @@ impl UdpConnectRequest {
             protocol_id,
             action,
             transaction_id,
+            tracker_request: None,
+            connection_id: None,
         }
     }
 }
 
-struct UdpConnectResponse {
+impl UdpRequest {
+    fn with_tracker_request(mut self, tracker_request: TrackerRequest) -> Self {
+        self.tracker_request = Some(tracker_request);
+
+        self
+    }
+
+    fn with_connection_id(mut self, connection_id: u64) -> Self {
+        self.connection_id = Some(connection_id);
+
+        self
+    }
+
+    fn with_action(mut self, action: u32) -> Self {
+        self.action = action;
+
+        self
+    }
+}
+
+struct UdpResponse {
     /// 32-bit action i.e 'Connect' or 'Announce'
-    action: u32,
+    #[allow(dead_code)]
+    pub action: u32,
     /// 64-bit Transaction Id
-    transaction_id: u32,
+    pub transaction_id: u32,
     /// 64-bit Transaction Id
-    connection_id: u64,
+    pub connection_id: Option<u64>,
+    /// Tracker response
+    pub tracker_response: Option<TrackerResponse>,
 }
 
 struct UdpMessageCodec;
 
-impl Encoder<UdpConnectRequest> for UdpMessageCodec {
+fn encode_tracker_request(tracker_request: TrackerRequest, dst: &mut BytesMut) {
+    dst.put_slice(&tracker_request.info_hash);
+    dst.put_slice(&tracker_request.peer_id);
+    dst.put_u64(tracker_request.downloaded);
+    dst.put_u64(tracker_request.left);
+    dst.put_u64(tracker_request.uploaded);
+
+    let event = tracker_request.event.as_str();
+    match event {
+        "none" => dst.put_u32(0),
+        "completed" => dst.put_u32(1),
+        "started" => dst.put_u32(2),
+        "stopped" => dst.put_u32(3),
+        _ => dst.put_u32(0),
+    };
+
+    dst.put_u32(tracker_request.ip_address);
+    dst.put_u32(tracker_request.key);
+    dst.put_i32(tracker_request.num_want);
+    dst.put_u16(tracker_request.port);
+}
+
+impl Encoder<UdpRequest> for UdpMessageCodec {
     type Error = tokio::io::Error;
 
-    fn encode(&mut self, item: UdpConnectRequest, dst: &mut BytesMut) -> tokio::io::Result<()> {
-        let mut buf = [0; 16];
-        NetworkEndian::write_u64(&mut buf, item.protocol_id);
-        NetworkEndian::write_u32(&mut buf, item.action);
-        NetworkEndian::write_u32(&mut buf, item.transaction_id);
-        dst.extend_from_slice(&buf);
+    fn encode(&mut self, item: UdpRequest, dst: &mut BytesMut) -> tokio::io::Result<()> {
+        let UdpRequest {
+            protocol_id,
+            action,
+            transaction_id,
+            tracker_request,
+            connection_id,
+        } = item;
+
+        if action == 0 {
+            dst.put_u64(protocol_id);
+        } else if let Some(connection_id) = connection_id {
+            dst.put_u64(connection_id);
+        }
+        dst.put_u32(action);
+        dst.put_u32(transaction_id);
+
+        if let Some(tracker_request) = tracker_request {
+            encode_tracker_request(tracker_request, dst);
+            assert!(dst.len() >= 20);
+        }
         Ok(())
     }
 }
 
+fn decode_ip_address(src: &mut BytesMut) -> Peers {
+    let mut addrs = Vec::new();
+
+    while src.remaining() >= 6 {
+        let mut ip: [u8; 4] = [0; 4];
+
+        src.copy_to_slice(&mut ip);
+
+        let port = src.get_u16();
+
+        let ip_addr = IpAddr::from(ip);
+
+        let sock = SocketAddr::new(ip_addr, port);
+
+        addrs.push(sock);
+    }
+
+    Peers { addrs }
+}
+
+fn decode_tracker_response(src: &mut BytesMut) -> TrackerResponse {
+    let interval = src.get_u32();
+    let leechers = src.get_u32();
+    let seeders = src.get_u32();
+    let peers = decode_ip_address(src);
+
+    TrackerResponse {
+        failure_reason: None,
+        warning_message: None,
+        complete: seeders,
+        interval,
+        min_interval: None,
+        tracker_id: None,
+        incomplete: leechers,
+        peers,
+    }
+}
+
 impl Decoder for UdpMessageCodec {
-    type Error = tokio::io::Error;
+    type Error = ConnectionError;
 
-    type Item = UdpConnectResponse;
+    type Item = UdpResponse;
 
-    fn decode(&mut self, src: &mut BytesMut) -> tokio::io::Result<Option<Self::Item>> {
-        if src.len() < 16 {
-            return Ok(None);
-        }
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
+        let response = if src.len() < 16 {
+            None
+        } else {
+            let action = src.get_u32();
 
-        let action = src.get_u32();
-        let transaction_id = src.get_u32();
-        let connection_id = src.get_u64();
+            let parse_common = |src: &mut BytesMut| {
+                let transaction_id = src.get_u32();
+                let connection_id = Some(src.get_u64());
+                (transaction_id, connection_id)
+            };
+            match action {
+                0 => {
+                    let (transaction_id, connection_id) = parse_common(src);
 
-        let response = UdpConnectResponse {
-            action,
-            transaction_id,
-            connection_id,
+                    Some(UdpResponse {
+                        transaction_id,
+                        connection_id,
+                        action,
+                        tracker_response: None,
+                    })
+                }
+                1 => {
+                    let transaction_id = src.get_u32();
+
+                    let tracker_response = Some(decode_tracker_response(src));
+
+                    Some(UdpResponse {
+                        action,
+                        transaction_id,
+                        connection_id: None,
+                        tracker_response,
+                    })
+                }
+                3 => {
+                    let _transaction_id = src.get_u32();
+                    let err_message = String::from_utf8_lossy(&src).to_string();
+
+                    return Err(ConnectionError::Custom(err_message));
+                }
+                _ => None,
+            }
         };
 
-        Ok(Some(response))
+        Ok(response)
     }
 }
 
@@ -177,7 +297,7 @@ fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T
 
 #[async_trait]
 pub trait Session<T: Into<Query>> {
-    async fn send(&mut self, message: T) -> Result<Bytes>;
+    async fn send(&mut self, message: TrackerRequest) -> Result<TrackerResponse>;
 }
 
 struct UdpSession {
@@ -191,60 +311,70 @@ impl UdpSession {
         let socket_addrs = self.url.socket_addrs(|| None)?;
 
         for addr in socket_addrs.iter() {
-            let response = Self::connect_to_addr(*addr).await?;
+            let request = UdpRequest::new();
+
+            let (response, _) = Self::connect_to_addr(*addr, request).await?;
 
             self.transaction_id = Some(response.transaction_id);
 
-            self.connection_id = Some(response.connection_id);
+            self.connection_id = response.connection_id;
         }
 
         Ok(())
     }
 
-    async fn connect_to_addr(addr: SocketAddr) -> Result<UdpConnectResponse> {
-        let socket = UdpSocket::bind("0.0.0.0:8080").await?;
-
-        for n in 0..=8 {
-            let t = 15 * 2_u64.pow(n);
-
-            let timeout_duration = Duration::from_secs(t);
-
-            let request = UdpConnectRequest::new();
-
-            let request_bytes = Into::<BytesMut>::into(request);
-
-            socket.send_to(&request_bytes, addr).await?;
-
-            let mut buf = BytesMut::new();
-            match timeout(timeout_duration, socket.recv(&mut buf)).await {
-                Ok(res) => {
-                    if let Ok(_) = res {
-                        let response = Self::parse_response_message(buf);
-                        return Ok(response);
-                    }
-
-                    continue;
-                }
-
-                Err(_) => continue,
+    async fn get_socket(addr: &SocketAddr) -> Result<UdpSocket> {
+        match addr {
+            SocketAddr::V6(addr) => {
+                let sock_addr = SocketAddr::new("::1".parse().unwrap(), 0);
+                let socket = UdpSocket::bind(sock_addr).await?;
+                socket.connect(addr).await?;
+                Ok(socket)
+            }
+            SocketAddr::V4(addr) => {
+                let socket = UdpSocket::bind("0.0.0.0:0").await?;
+                socket.connect(addr).await?;
+                Ok(socket)
             }
         }
-
-        Err(ConnectionError::Custom("Timed out".to_string()))
     }
 
-    fn parse_response_message(buf: BytesMut) -> UdpConnectResponse {
-        let mut cursor = Cursor::new(buf);
+    async fn connect_to_addr(
+        addr: SocketAddr,
+        request: UdpRequest,
+    ) -> Result<(UdpResponse, SocketAddr)> {
+        let socket = Self::get_socket(&addr).await?;
 
-        let action = cursor.get_u32();
-        let transaction_id = cursor.get_u32();
-        let connection_id = cursor.get_u64();
+        let mut socket = UdpFramed::new(socket, UdpMessageCodec);
 
-        UdpConnectResponse {
-            action,
-            transaction_id,
-            connection_id,
+        socket.send((request.clone(), addr)).await?;
+
+        let mut result = socket.next().await;
+
+        while let None = result {
+            result = socket.next().await;
         }
+
+        let result = result.unwrap()?;
+
+        Ok(result)
+    }
+
+    async fn send_message(&self, tracker_request: TrackerRequest) -> Result<UdpResponse> {
+        let socket_addr = self.url.socket_addrs(|| None)?;
+
+        for addr in socket_addr.iter() {
+            let request = UdpRequest::new()
+                .with_action(1)
+                .with_connection_id(self.connection_id.unwrap())
+                .with_tracker_request(tracker_request.clone());
+
+            let (response, _) = Self::connect_to_addr(*addr, request).await?;
+
+            return Ok(response);
+        }
+
+        Err(ConnectionError::Other("Could not resolve url".to_string()))
     }
 }
 
@@ -253,14 +383,31 @@ impl<T> Session<T> for UdpSession
 where
     T: Into<Query> + Send + 'static,
 {
-    async fn send(&mut self, _message: T) -> Result<Bytes> {
+    async fn send(&mut self, message: TrackerRequest) -> Result<TrackerResponse> {
         if let (None, None) = (self.transaction_id, self.connection_id) {
-            self.connect().await?;
+            if let Err(err) = self.connect().await {
+                log::error!("\t{}", err);
+                return Err(err);
+            }
         }
 
-        let slice = Vec::new();
-        let res = Bytes(slice);
-        Ok(res)
+        let response = match self.send_message(message).await {
+            Ok(res) => res,
+            Err(err) => {
+                log::error!("\tsend_message\t{}", err);
+                return Err(err);
+            }
+        };
+
+        if let None = response.tracker_response {
+            return Err(ConnectionError::Other(
+                "Could not get tracker response".to_string(),
+            ));
+        };
+
+        let tracker_response = response.tracker_response.unwrap();
+
+        Ok(tracker_response)
     }
 }
 
@@ -273,7 +420,7 @@ impl<T> HttpSession<T>
 where
     T: Connect + Clone + Send + Sync + 'static,
 {
-    async fn send_message(&self, message: impl Into<Query>) -> Result<Bytes> {
+    async fn send_message(&self, message: impl Into<Query>) -> Result<TrackerResponse> {
         let query = Into::<Query>::into(message);
         let mut url = self.url.clone();
 
@@ -285,7 +432,11 @@ where
 
         let response = self.client.request(req).await?;
 
-        self.handle_response(response).await
+        let response_bytes = self.handle_response(response).await?;
+
+        let response = serde_bencode::de::from_bytes(&response_bytes)?;
+
+        Ok(response)
     }
 
     async fn handle_response(&self, response: Response<Body>) -> Result<Bytes> {
@@ -324,7 +475,7 @@ where
     T: Into<Query> + Send + 'static,
     K: Connect + Clone + Send + Sync + 'static,
 {
-    async fn send(&mut self, message: T) -> Result<Bytes> {
+    async fn send(&mut self, message: TrackerRequest) -> Result<TrackerResponse> {
         Ok(self.send_message(message).await?)
     }
 }

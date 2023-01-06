@@ -37,6 +37,9 @@ pub struct Tracker<'a> {
     torrent: &'a Metainfo,
 }
 
+unsafe impl Send for Tracker<'_> {}
+
+unsafe impl Sync for Tracker<'_> {}
 impl<'a> Tracker<'a> {
     fn new(url: Url, torrent: &'a Metainfo) -> Self {
         let session = from_url(url);
@@ -53,9 +56,7 @@ impl<'a> Tracker<'a> {
         &mut self,
         tracker_request: TrackerRequest,
     ) -> Result<TrackerResponse, Error> {
-        let response_bytes = self.session.send(tracker_request.into()).await?;
-
-        let response = serde_bencode::from_bytes::<TrackerResponse>(&response_bytes)?;
+        let response = self.session.send(tracker_request).await?;
 
         self.id = response.tracker_id.clone();
 
@@ -238,12 +239,12 @@ pub struct TrackerResponse {
     pub failure_reason: Option<ByteBuf>,
     #[serde(rename = "warning message")]
     pub warning_message: Option<ByteBuf>,
-    pub complete: Option<u64>,
-    pub interval: u64,
+    pub complete: u32,
+    pub interval: u32,
     #[serde(rename = "min interval")]
     pub min_interval: Option<u64>,
     pub tracker_id: Option<ByteBuf>,
-    pub incomplete: u64,
+    pub incomplete: u32,
     pub peers: Peers,
 }
 

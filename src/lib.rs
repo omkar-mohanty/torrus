@@ -7,19 +7,20 @@ pub mod peer;
 pub mod storage;
 pub mod torrent;
 pub mod tracker;
+pub mod message;
 
-mod block;
-mod message;
 mod piece;
+mod block;
+mod dht;
 
-pub type Hash = Vec<u8>;
-pub type PeerId = Vec<u8>;
+type Hash = Vec<u8>;
+type PeerId = [u8; 20];
 
 /// 0 indexed Bitfield which represents the pieces which the client has and does not have
-pub type PieceIndex = usize;
-pub type Bitfield = BitVec<u8, Msb0>;
-pub type Sender = UnboundedSender<message::Message>;
-pub type Receiver = UnboundedReceiver<message::Message>;
-pub type IoResult<T> = tokio::io::Result<T>;
+type PieceIndex = usize;
+type Bitfield = BitVec<u8, Msb0>;
+type Sender = UnboundedSender<message::Message>;
+type Receiver = UnboundedReceiver<message::Message>;
+type IoResult<T> = tokio::io::Result<T>;
 
 pub type Result<T> = std::result::Result<T, error::TorrusError>;

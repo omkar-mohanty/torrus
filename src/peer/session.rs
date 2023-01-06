@@ -1,4 +1,5 @@
-use crate::message::{Message, PeerCodec};
+use super::PeerCodec;
+use crate::message::Message;
 use crate::Result;
 use crate::{Receiver, Sender};
 use futures::{SinkExt, StreamExt};
@@ -62,8 +63,11 @@ impl PeerSession {
 
 #[cfg(test)]
 mod tests {
-    use crate::{block::{Block, BlockInfo}, Bitfield};
     use super::*;
+    use crate::{
+        block::{Block, BlockInfo},
+        Bitfield,
+    };
     use std::{net::SocketAddr, str::FromStr};
     use tokio::net::TcpListener;
 
