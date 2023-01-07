@@ -1,7 +1,7 @@
 use clap::ArgGroup;
 use metainfo::{render_torrent, Metainfo};
-use std::{env, error::Error, fs, path::PathBuf, time::Duration};
-use torrus::{*, tracker::Peers};
+use std::{error::Error, fs, path::PathBuf, time::Duration};
+use torrus::{tracker::Peers, *};
 use tracker::get_trackers;
 use url::Url;
 
@@ -15,6 +15,9 @@ struct Cli {
     /// Location of the .torrent file
     #[command(subcommand)]
     command: SubCommand,
+    /// Display metainfo file
+    #[arg(short, long)]
+    display: Option<bool>,
 }
 
 #[derive(Subcommand)]
@@ -34,14 +37,13 @@ enum SubCommand {
     },
 }
 
-async fn get_peers_from_trackers(path : PathBuf) -> Result<Peers> {
-let buffer = fs::read(path)?;
+async fn get_peers_from_trackers(path: PathBuf) -> Result<Peers> {
+    let buffer = fs::read(path)?;
     let torrent = Metainfo::from_bytes(&buffer)?;
-    println!(
-        "Total pieces = {} ",
-        torrent.info.length / torrent.info.piece_length
-    );
-    
+
+    render_torrent(&torrent);
+    println!("Total pieces = {} ", torrent.total_pieces());
+
     let trackers = get_trackers(&torrent)?;
     let mut addrs = vec![];
     for mut tracker in trackers {
@@ -67,7 +69,7 @@ let buffer = fs::read(path)?;
         }
     }
 
-    Ok(Peers { addrs})
+    Ok(Peers { addrs })
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -82,7 +84,8 @@ async fn main() -> Result<()> {
     };
 
     let mut peers = Vec::new();
-    if  let Some(path) = path {
+    if let Some(path) = path {
+        println!("Here");
         let addrs = get_peers_from_trackers(path).await?.addrs;
         peers.push(addrs);
     }

@@ -2,16 +2,16 @@ use bitvec::{prelude::Msb0, vec::BitVec};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub mod error;
+pub mod message;
 pub mod metainfo;
 pub mod peer;
 pub mod storage;
 pub mod torrent;
 pub mod tracker;
-pub mod message;
 
-mod piece;
 mod block;
 mod dht;
+mod piece;
 
 type Hash = Vec<u8>;
 type PeerId = [u8; 20];

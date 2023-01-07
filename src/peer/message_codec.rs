@@ -57,15 +57,6 @@ impl Decoder for HandShakeCodec {
         let mut peer_id = [0; 20];
         src.copy_to_slice(&mut peer_id);
 
-        if src.remaining() > 0 {
-            let err_msg = format!(
-                "The handshake message must be exactly {} long but {} bytes still remaining",
-                Handshake::len(),
-                src.remaining()
-            );
-            return Err(PeerError::new(&err_msg));
-        }
-
         let res = Some(Handshake {
             info_hash,
             peer_id,
@@ -279,15 +270,13 @@ mod tests {
     fn correct_handshake() -> Handshake {
         let peer_id = thread_rng().gen::<[u8; 20]>();
         let hash = thread_rng().gen::<[u8; 20]>().to_vec();
-        let reserved = thread_rng().gen::<[u8; 8]>();
-        Handshake::new(peer_id, hash, reserved)
+        Handshake::new(peer_id, hash)
     }
 
     fn incorrect_handshake() -> BytesMut {
         let peer_id = thread_rng().gen::<[u8; 20]>();
         let hash = thread_rng().gen::<[u8; 21]>().to_vec();
-        let reserved = [0; 8];
-        let handshake = Handshake::new(peer_id, hash, reserved);
+        let handshake = Handshake::new(peer_id, hash);
         let mut dst = BytesMut::new();
         HandShakeCodec.encode(handshake, &mut dst).unwrap();
         dst
@@ -312,7 +301,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic]
     async fn test_incorrect_handshake() {
         let mut dst = incorrect_handshake();
         HandShakeCodec.decode(&mut dst).unwrap();

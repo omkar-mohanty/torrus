@@ -1,4 +1,8 @@
-use crate::{Bitfield, Hash, PieceIndex};
+use std::collections::BTreeMap;
+
+use sha1::{Digest, Sha1};
+
+use crate::{block::Block, Bitfield, Hash, PieceIndex};
 
 /// Tracks all the pieces in the current torrent.
 pub struct PieceTracker {
@@ -13,7 +17,7 @@ pub struct PieceTracker {
 }
 
 /// Represents an individual piece in a torrent.
-#[derive(Clone, Default, PartialEq, PartialOrd, Eq)]
+#[derive(Clone, Default)]
 struct Piece {
     /// The index of the piece in the bitfield
     pub index: PieceIndex,
@@ -23,6 +27,30 @@ struct Piece {
     pub pending: bool,
     /// 20 byte Sha-1 Hash of the piece
     pub hash: Hash,
+    /// THe blocks of the piece
+    pub blocks: BTreeMap<u32, Block>,
+    /// legth of the piece
+    pub len: u32,
+}
+
+impl Piece {
+    pub fn validate(&self) -> bool {
+        let mut hasher = Sha1::new();
+
+        for block in self.blocks.values() {
+            hasher.update(&block.data);
+        }
+
+        let hash = hasher.finalize();
+
+        log::debug!("Piece Hash: {:x}", hash);
+
+        hash.as_slice() == self.hash
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.blocks.len() == crate::block::block_count(self.len)
+    }
 }
 
 impl PieceTracker {

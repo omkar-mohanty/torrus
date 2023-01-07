@@ -8,8 +8,8 @@ pub struct Node(String, i64);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct File {
-    path: Vec<String>,
-    length: i64,
+    pub path: Vec<String>,
+    pub length: u64,
     #[serde(default)]
     md5sum: Option<String>,
 }
@@ -24,19 +24,12 @@ pub struct Info {
     pub md5sum: Option<String>,
     #[serde(default)]
     pub length: u64,
-    #[serde(flatten)]
-    pub files_and_path: Option<FilesAndPath>,
+    pub files: Option<Vec<File>>,
     #[serde(default)]
     pub private: Option<u8>,
     #[serde(default)]
     #[serde(rename = "root hash")]
     pub root_hash: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct FilesAndPath {
-    files: Vec<File>,
-    path: Vec<String>,
 }
 
 impl Info {
@@ -81,6 +74,21 @@ impl Metainfo {
     pub fn from_bytes(v: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(serde_bencode::de::from_bytes::<Metainfo>(v)?)
     }
+
+    pub fn total_pieces(&self) -> u64 {
+        let total_pieces = if let Some(files) = &self.info.files {
+            let mut total_length: u64 = 0;
+            for file in files {
+                total_length += file.length;
+            }
+
+            total_length / self.info.piece_length
+        } else {
+            self.info.length / self.info.piece_length
+        };
+
+        total_pieces
+    }
 }
 
 pub fn render_torrent(torrent: &Metainfo) {
@@ -90,6 +98,13 @@ pub fn render_torrent(torrent: &Metainfo) {
     if let Some(al) = &torrent.announce_list {
         for a in al {
             println!("announce list:\t{}", a[0]);
+        }
+    }
+    for files in torrent.info.files.iter() {
+        for file in files.iter() {
+            for path in file.path.iter() {
+                println!("File\t {}", path);
+            }
         }
     }
     println!("httpseeds:\t{:?}", torrent.httpseeds);

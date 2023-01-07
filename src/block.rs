@@ -44,3 +44,7 @@ pub struct BlockInfo {
     /// The offset in bytes within int 'Piece'
     pub begin: u32,
 }
+
+pub fn block_count(piece_length: u32) -> usize {
+    (piece_length as usize + (BLOCK_SIZE as usize - 1)) / BLOCK_SIZE as usize
+}

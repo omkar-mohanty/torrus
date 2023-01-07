@@ -9,11 +9,11 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub fn new(peer_id: PeerId, info_hash: Hash, reserved: [u8; 8]) -> Self {
+    pub fn new(peer_id: PeerId, info_hash: Hash) -> Self {
         Self {
             peer_id,
             info_hash,
-            reserved,
+            reserved: [0; 8],
         }
     }
     pub fn len() -> usize {
