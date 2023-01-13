@@ -1,7 +1,11 @@
+use std::path::PathBuf;
+
 use serde_bencode::to_bytes;
 use serde_bytes::ByteBuf;
 use serde_derive::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
+
+use crate::storage::FileInfo;
 
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);
@@ -89,6 +93,41 @@ impl Metainfo {
 
         total_pieces
     }
+
+    pub fn get_files(&self) -> Vec<FileInfo> {
+        let files = if let Some(files) = &self.info.files {
+            let mut offset = 0;
+
+            files
+                .into_iter()
+                .map(|file| {
+                    let mut path: PathBuf = PathBuf::new();
+
+                    file.path.iter().for_each(|path_str| {
+                        path.push(path_str);
+                    });
+
+                    offset += file.length;
+
+                    FileInfo {
+                        path,
+                        offset: offset.clone(),
+                        length: file.length,
+                    }
+                })
+                .collect()
+        } else {
+            let file_string = &self.info.name;
+            let path = PathBuf::from(file_string);
+            vec![FileInfo {
+                path,
+                offset: 0,
+                length: self.info.length,
+            }]
+        };
+
+        files
+    }
 }
 
 pub fn render_torrent(torrent: &Metainfo) {
@@ -120,15 +159,94 @@ pub fn render_torrent(torrent: &Metainfo) {
 #[cfg(test)]
 mod tests {
 
+    use std::path::Path;
+
+    use crate::storage::TorrentFile;
+
     use super::*;
 
     type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
     const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
+    const FILEPATH_MULTI: &str = "./resources/multi.torrent";
 
     #[tokio::test]
     async fn test_from_bytes() -> Result<()> {
         let file = std::fs::read(FILEPATH)?;
         Metainfo::from_bytes(&file)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_create_from_metainfo() -> Result<()> {
+        let buffer = std::fs::read(FILEPATH)?;
+
+        let metainfo = Metainfo::from_bytes(&buffer)?;
+
+        let files_dwn = metainfo.get_files();
+
+        let files: Vec<Result<()>> = files_dwn
+            .iter()
+            .map(|file_info| -> Result<()> {
+                let path = PathBuf::from("/tmp").join(&file_info.path);
+
+                let file_info = FileInfo {
+                    path: path.clone(),
+                    offset: file_info.offset,
+                    length: file_info.length,
+                };
+
+                TorrentFile::new(file_info)?;
+
+                match Path::exists(&path) {
+                    true => Ok(()),
+
+                    false => {
+                        panic!("File not created")
+                    }
+                }
+            })
+            .collect();
+
+        for file in files {
+            file?
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_create_multi() -> Result<()> {
+        let buffer = std::fs::read(FILEPATH_MULTI)?;
+
+        let metainfo = Metainfo::from_bytes(&buffer)?;
+
+        let files_dwn = metainfo.get_files();
+
+        let files: Vec<Result<()>> = files_dwn
+            .iter()
+            .map(|file_info| -> Result<()> {
+                let path = PathBuf::from("/tmp").join(&file_info.path);
+
+                let file_info = FileInfo {
+                    path: path.clone(),
+                    offset: file_info.offset,
+                    length: file_info.length,
+                };
+
+                TorrentFile::new(file_info)?;
+
+                match Path::exists(&path) {
+                    true => Ok(()),
+
+                    false => {
+                        panic!("File not created")
+                    }
+                }
+            })
+            .collect();
+
+        for file in files {
+            file?
+        }
         Ok(())
     }
 }

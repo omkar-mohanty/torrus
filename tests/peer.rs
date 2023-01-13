@@ -8,6 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 use torrus::{message::Handshake, peer::message_codec::HandShakeCodec};
 const PATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
+
 #[tokio::test]
 async fn test_peer() -> Result<()> {
     let buffer = std::fs::read(PATH)?;
@@ -28,8 +29,7 @@ async fn test_peer() -> Result<()> {
 
             let mut stream = Framed::new(stream, HandShakeCodec);
             let peer_id = thread_rng().gen::<[u8; 20]>();
-            let reserved = [0; 8];
-            let handshake = Handshake::new(peer_id, info_hash, reserved);
+            let handshake = Handshake::new(peer_id, info_hash);
             if let Err(err) = stream.send(handshake).await {
                 println!("Error sending handshake");
                 println!("err {}", err);

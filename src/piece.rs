@@ -1,8 +1,17 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    ops::Range,
+    sync::RwLock,
+};
 
 use sha1::{Digest, Sha1};
 
-use crate::{block::Block, Bitfield, Hash, PieceIndex};
+use crate::{
+    block::Block,
+    error::TorrusError,
+    storage::{IoVec, TorrentFile},
+    Bitfield, Hash, PieceIndex, Result,
+};
 
 /// Tracks all the pieces in the current torrent.
 pub struct PieceTracker {
@@ -18,7 +27,7 @@ pub struct PieceTracker {
 
 /// Represents an individual piece in a torrent.
 #[derive(Clone, Default)]
-struct Piece {
+pub struct Piece {
     /// The index of the piece in the bitfield
     pub index: PieceIndex,
     /// The frequency of the piece in the swarm.
@@ -31,6 +40,8 @@ struct Piece {
     pub blocks: BTreeMap<u32, Block>,
     /// legth of the piece
     pub len: u32,
+    /// Offset of the piece within the torrent
+    pub offset: u64,
 }
 
 impl Piece {
@@ -50,6 +61,56 @@ impl Piece {
 
     pub fn is_complete(&self) -> bool {
         self.blocks.len() == crate::block::block_count(self.len)
+    }
+
+    pub fn insert_block(&mut self, block: Block) -> Result<()> {
+        let index = block.block_info.begin;
+
+        let entry = self.blocks.entry(index);
+
+        use Entry::*;
+        let res = match entry {
+            Vacant(_) => {
+                self.blocks.insert(index, block);
+                Ok(())
+            }
+
+            Occupied(_) => Err(TorrusError::new("Duplicate Block")),
+        };
+
+        res
+    }
+
+    pub fn write(&self, files: &[RwLock<TorrentFile>]) -> Result<()> {
+        for file in files {
+            let mut file = file.write().unwrap();
+
+            let data = self.get_data(file.get_offset());
+
+            file.write(data)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_file_range(&self, files: &[RwLock<TorrentFile>]) -> Range<usize> {
+        let mut start = 0;
+        let mut end = 0;
+
+        for file in files {
+            let file = file.try_read().unwrap();
+
+            if self.offset >= file.get_offset() {}
+        }
+
+        Range {
+            start: start as usize,
+            end,
+        }
+    }
+
+    fn get_data(&self, file_offset: u64) -> IoVec {
+        unimplemented!()
     }
 }
 
