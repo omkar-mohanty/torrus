@@ -1,6 +1,6 @@
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 
-use crate::PieceIndex;
+use crate::{storage::IoVec, Offset, PieceIndex};
 
 pub(crate) const BLOCK_SIZE: u32 = 0x4000;
 
@@ -24,8 +24,22 @@ impl Block {
         self.block_info.piece_index
     }
 
-    pub fn get_offset(&self) -> u32 {
-        self.block_info.begin
+    pub fn get_offset(&self) -> Offset {
+        self.block_info.begin as Offset
+    }
+
+    pub fn byte_range(&self) -> Range<Offset> {
+        let start = self.get_offset();
+
+        let end = start + self.data.len();
+
+        Range { start, end }
+    }
+
+    pub fn get_slice(&self, range: Range<usize>) -> IoVec {
+        let begin = range.start;
+        let data = self.data[range].to_vec();
+        IoVec::new(begin, data)
     }
 }
 
@@ -45,6 +59,6 @@ pub struct BlockInfo {
     pub begin: u32,
 }
 
-pub fn block_count(piece_length: u32) -> usize {
+pub fn block_count(piece_length: u64) -> usize {
     (piece_length as usize + (BLOCK_SIZE as usize - 1)) / BLOCK_SIZE as usize
 }

@@ -22,3 +22,5 @@ impl From<std::io::Error> for TorrusError {
         TorrusError::new(&value.to_string())
     }
 }
+
+unsafe impl Send for TorrusError {}

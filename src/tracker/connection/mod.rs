@@ -265,7 +265,7 @@ impl Into<String> for Query {
     }
 }
 
-pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
+pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
     match url.scheme() {
         "http" | "https" => from_url_http(url),
         "udp" => from_url_udp(url),
@@ -273,7 +273,7 @@ pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>
     }
 }
 
-fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
+fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
     Box::new(UdpSession {
         url,
         connection_id: None,
@@ -281,7 +281,7 @@ fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>
     })
 }
 
-fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>> {
+fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
     match url.scheme() {
         "https" => Box::new(HttpSession {
             url,

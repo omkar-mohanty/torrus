@@ -5,7 +5,8 @@ use serde_bytes::ByteBuf;
 use serde_derive::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
-use crate::storage::FileInfo;
+use crate::Result;
+use crate::{storage::FileInfo, Hash};
 
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);
@@ -37,7 +38,7 @@ pub struct Info {
 }
 
 impl Info {
-    pub fn hash(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn hash(&self) -> Result<Vec<u8>> {
         let bencod_string = to_bytes(self)?;
 
         let mut hasher = Sha1::new();
@@ -75,11 +76,11 @@ pub struct Metainfo {
 }
 
 impl Metainfo {
-    pub fn from_bytes(v: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_bytes(v: &[u8]) -> Result<Self> {
         Ok(serde_bencode::de::from_bytes::<Metainfo>(v)?)
     }
 
-    pub fn total_pieces(&self) -> u64 {
+    pub fn total_pieces(&self) -> usize {
         let total_pieces = if let Some(files) = &self.info.files {
             let mut total_length: u64 = 0;
             for file in files {
@@ -91,7 +92,7 @@ impl Metainfo {
             self.info.length / self.info.piece_length
         };
 
-        total_pieces
+        total_pieces as usize
     }
 
     pub fn get_files(&self) -> Vec<FileInfo> {
@@ -127,6 +128,10 @@ impl Metainfo {
         };
 
         files
+    }
+
+    pub fn hash(&self) -> Result<Hash> {
+        Ok(self.info.hash()?.to_vec())
     }
 }
 

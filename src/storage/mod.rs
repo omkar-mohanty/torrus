@@ -1,8 +1,9 @@
-use crate::Result;
-use std::fs::File;
-use std::io::{Seek, SeekFrom, Write};
-use std::ops::Deref;
-use std::{fs, path::PathBuf};
+use crate::error::TorrusError;
+use crate::{Offset, Result};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::ops::{Deref, Range};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct DiskInfo {
@@ -34,7 +35,26 @@ impl TorrentFile {
     pub fn new(file_info: FileInfo) -> Result<Self> {
         let path = &file_info.path;
 
-        let file = fs::File::create(path)?;
+        let file = if path.exists() {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .map_err(|e| {
+                    log::warn!("Failed to open file {:?}", path);
+                    TorrusError::new(&e.to_string())
+                })?
+        } else {
+            File::options()
+                .write(true)
+                .read(true)
+                .create(true)
+                .open(path)
+                .map_err(|e| {
+                    log::warn!("Failed to open file {:?}", path);
+                    TorrusError::new(&e.to_string())
+                })?
+        };
 
         Ok(Self { file_info, file })
     }
@@ -44,6 +64,17 @@ impl TorrentFile {
 
         self.file.write_all(&data)?;
         Ok(())
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        // for some reason self.file.read(&mut buf) does not read anything.
+        let mut file = File::open(&self.file_info.path)?;
+
+        let len = file.read(buf)?;
+
+        log::info!("Read : {}", len);
+
+        Ok(len)
     }
 
     pub fn from_metainfo(metainfo_file: crate::metainfo::File, offset: u64) -> Result<Self> {
@@ -58,25 +89,31 @@ impl TorrentFile {
         Self::new(file_info)
     }
 
-    pub fn get_offset(&self) -> u64 {
-        self.file_info.offset
+    pub fn get_offset(&self) -> Offset {
+        self.file_info.offset as Offset
     }
 
-    pub fn get_length(&self) -> u64 {
-        self.file_info.length
+    pub fn get_length(&self) -> Offset {
+        self.file_info.length as Offset
+    }
+
+    pub fn byte_range(&self) -> Range<Offset> {
+        let offset = self.get_offset();
+        let end = offset + self.get_length();
+        offset..end
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct IoVec {
     /// Byte offset from where the data actually begins
-    pub begin: u32,
+    pub begin: Offset,
     /// Actual data in bytes
     data: Vec<u8>,
 }
 
 impl IoVec {
-    pub fn new(begin: u32, data: Vec<u8>) -> Self {
+    pub fn new(begin: Offset, data: Vec<u8>) -> Self {
         IoVec { begin, data }
     }
 }
@@ -90,12 +127,12 @@ impl Deref for IoVec {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-    use std::path::Path;
-
     use super::*;
     use crate::metainfo::Metainfo;
     use crate::Result;
+    use std::fs;
+    use std::io::Read;
+    use std::path::Path;
 
     const PATH_SINGLE: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
     const PATH_MULTI: &str = "./resources/multi.torrent";
@@ -204,6 +241,32 @@ mod tests {
         file.read_to_string(&mut contents)?;
 
         assert_eq!(&contents, "Hello");
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_read() -> Result<()> {
+        let path = PathBuf::from("/tmp/read.txt");
+
+        let file_info = FileInfo {
+            length: "Hello".len() as u64,
+            offset: 0,
+            path: path.clone(),
+        };
+
+        let mut torrent_file = TorrentFile::new(file_info)?;
+
+        torrent_file.write(IoVec::new(0, "Hello".as_bytes().to_vec()))?;
+
+        let mut buf1: [u8; 1024] = [0; 1024];
+
+        File::open(path.clone())?.read(&mut buf1)?;
+
+        let mut buf2: [u8; 1024] = [0; 1024];
+
+        torrent_file.read(&mut buf2)?;
+
+        assert_eq!(buf1, buf2);
         Ok(())
     }
 }

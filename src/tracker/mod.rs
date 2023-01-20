@@ -1,6 +1,5 @@
-use crate::metainfo::Metainfo;
+use crate::{metainfo::Metainfo, PeerId};
 use byteorder::ByteOrder;
-use rand::Rng;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
 use serde_derive::Deserialize;
@@ -9,6 +8,7 @@ use std::{
     marker::PhantomData,
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     str::FromStr,
+    sync::Arc,
 };
 use url::{form_urlencoded::byte_serialize, Url};
 
@@ -30,19 +30,21 @@ pub enum TrackerState {
 /// successfully responds.
 ///
 /// Each tracker has a reference to the torrent metainfo.
-pub struct Tracker<'a> {
+pub struct Tracker {
     id: Option<ByteBuf>,
     alive: TrackerState,
-    session: Box<dyn Session<TrackerRequest>>,
-    torrent: &'a Metainfo,
+    session: Box<dyn Session<TrackerRequest> + Send>,
+    torrent: Arc<Metainfo>,
 }
 
-unsafe impl Send for Tracker<'_> {}
+unsafe impl Send for Tracker {}
 
-unsafe impl Sync for Tracker<'_> {}
-impl<'a> Tracker<'a> {
-    fn new(url: Url, torrent: &'a Metainfo) -> Self {
+unsafe impl Sync for Tracker {}
+
+impl Tracker {
+    fn new(url: Url, torrent: Arc<Metainfo>) -> Self {
         let session = from_url(url);
+
         Self {
             id: None,
             alive: TrackerState::Dead,
@@ -58,51 +60,35 @@ impl<'a> Tracker<'a> {
     ) -> Result<TrackerResponse, Error> {
         let response = self.session.send(tracker_request).await?;
 
-        self.id = response.tracker_id.clone();
-
         self.alive = TrackerState::Alive;
 
         Ok(response)
     }
 
-    /// Announce to the tracker
-    pub async fn announce(&mut self) -> Result<TrackerResponse, Error> {
-        let info_hash = self.torrent.info.hash()?;
-        let peer_id_slice = rand::thread_rng().gen::<[u8; 20]>();
-
-        let mut peer_id = Vec::new();
-        peer_id.extend_from_slice(&peer_id_slice);
-
+    pub async fn announce(&mut self, peer_id: Vec<u8>) -> crate::Result<TrackerResponse> {
+        let info_hash = self.torrent.hash()?;
         let left = self.torrent.info.length;
 
-        let request = TrackerRequestBuilder::new()
+        let announce_request = TrackerRequestBuilder::new()
             .info_hash(info_hash)
             .peer_id(peer_id)
             .with_port(6881)
             .downloaded(0)
             .uploaded(0)
             .left(left)
-            .event(String::from_str("started")?)
+            .event(String::from_str("started").unwrap())
             .build();
 
-        Ok(self.send_request(request).await?)
-    }
-}
+        let response = self.send_request(announce_request).await?;
 
-pub fn get_trackers(torrent: &Metainfo) -> Result<Vec<Tracker>, Error> {
-    let mut trackers = Vec::new();
-
-    if let Some(al) = &torrent.announce_list {
-        for a in al {
-            let url = Url::parse(a[0].as_str())?;
-            trackers.push(Tracker::new(url, torrent));
-        }
-    } else if let Some(announce) = &torrent.announce {
-        let url = Url::parse(announce.as_str())?;
-        trackers.push(Tracker::new(url, torrent));
+        Ok(response)
     }
 
-    Ok(trackers)
+    pub fn from_url_string(url: &str, metainfo: Arc<Metainfo>) -> crate::Result<Self> {
+        let url = Url::parse(&url)?;
+
+        Ok(Self::new(url, metainfo))
+    }
 }
 
 #[derive(Clone, Debug)]
