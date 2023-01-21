@@ -229,6 +229,12 @@ impl PieceHandler {
 
         return None;
     }
+
+    pub fn insert_block(&mut self, block: Block) -> Result<()> {
+        let index = block.block_info.piece_index;
+
+        Ok(self.pieces[index].insert_block(block)?)
+    }
 }
 
 fn get_overlapping_range(files: &[RwLock<TorrentFile>], piece: &PieceInfo) -> Range<usize> {
@@ -264,18 +270,12 @@ fn get_overlapping_range(files: &[RwLock<TorrentFile>], piece: &PieceInfo) -> Ra
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Deref, path::PathBuf};
+    use std::path::PathBuf;
 
     use rand::Rng;
 
     use super::*;
-    use crate::{
-        block::{BlockData, BlockInfo},
-        storage::FileInfo,
-        Result,
-    };
-
-    const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
+    use crate::{block::BlockInfo, storage::FileInfo, Result};
 
     #[test]
     fn test_validate() -> Result<()> {
@@ -385,18 +385,6 @@ mod tests {
             println!("Start: {}, End: {}", range.start, range.end);
             assert_eq!(range, expected_range);
         }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_piece_write() -> Result<()> {
-        let mut piece_info = PieceInfo::default();
-        piece_info.file_range = Range { start: 0, end: 1 };
-        let block_info = BlockInfo {
-            piece_index: 0,
-            begin: 0,
-        };
 
         Ok(())
     }

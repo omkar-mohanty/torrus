@@ -13,6 +13,7 @@ pub mod torrent;
 pub mod tracker;
 
 mod block;
+mod client;
 mod dht;
 mod piece;
 mod utils;
@@ -35,3 +36,5 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn new_peer_id() -> PeerId {
     thread_rng().gen::<PeerId>()
 }
+
+pub use client::Client;

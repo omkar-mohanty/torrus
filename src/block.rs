@@ -28,6 +28,7 @@ impl Block {
         self.block_info.begin as Offset
     }
 
+    /// Range of bytes which the block holds data for
     pub fn byte_range(&self) -> Range<Offset> {
         let start = self.get_offset();
 

@@ -12,3 +12,5 @@ pub enum Direction {
     Inbound,
     Outbound,
 }
+
+pub use session::PeerSession;

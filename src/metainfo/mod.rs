@@ -11,6 +11,9 @@ use crate::{storage::FileInfo, Hash};
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);
 
+/// Bittorrent spec describes Path as being a list.
+/// The Path can be a directory or else it can be a file in which case it is the last element in
+/// the list.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct File {
     pub path: Vec<String>,
@@ -19,6 +22,9 @@ pub struct File {
     md5sum: Option<String>,
 }
 
+/// Represents Bittorrent Info dictionary
+/// If the torrent is single file the `files` field is empty in which case the `name` becomes the
+/// path of the torrent
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Info {
     pub name: String,
@@ -38,6 +44,7 @@ pub struct Info {
 }
 
 impl Info {
+    /// 20 Byte SHA - 1 Info hash
     pub fn hash(&self) -> Result<Vec<u8>> {
         let bencod_string = to_bytes(self)?;
 
@@ -51,11 +58,15 @@ impl Info {
     }
 }
 
+/// Contains all the necessary information to connect to trackers aang getting the infohash
 #[derive(Debug, Deserialize)]
 pub struct Metainfo {
+    /// Info disctionary
     pub info: Info,
+    /// Tracker's announce URL
     #[serde(default)]
     pub announce: Option<String>,
+    /// If DHT supported the well known nodes
     #[serde(default)]
     pub nodes: Option<Vec<Node>>,
     #[serde(default)]
@@ -64,6 +75,7 @@ pub struct Metainfo {
     pub httpseeds: Option<Vec<String>>,
     #[serde(default)]
     #[serde(rename = "announce-list")]
+    /// If multi tracker is present the url of all the said trackers
     pub announce_list: Option<Vec<Vec<String>>>,
     #[serde(default)]
     #[serde(rename = "creation date")]

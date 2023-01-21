@@ -295,6 +295,9 @@ fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T
     }
 }
 
+/// A tracker can be either use http or udp to communicate with clients
+/// `Session` abstracts over the Protocol and provides a clean interface to communicate with the
+/// tracker
 #[async_trait]
 pub trait Session<T: Into<Query>> {
     async fn send(&mut self, message: TrackerRequest) -> Result<TrackerResponse>;

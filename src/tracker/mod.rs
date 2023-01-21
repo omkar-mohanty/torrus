@@ -1,4 +1,4 @@
-use crate::{metainfo::Metainfo, PeerId};
+use crate::metainfo::Metainfo;
 use byteorder::ByteOrder;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -31,9 +31,11 @@ pub enum TrackerState {
 ///
 /// Each tracker has a reference to the torrent metainfo.
 pub struct Tracker {
-    id: Option<ByteBuf>,
+    /// A tracker may be responsive or unresponsive
     alive: TrackerState,
+    /// Abstraction over tracker protocol
     session: Box<dyn Session<TrackerRequest> + Send>,
+    /// Torrent metainfo
     torrent: Arc<Metainfo>,
 }
 
@@ -46,7 +48,6 @@ impl Tracker {
         let session = from_url(url);
 
         Self {
-            id: None,
             alive: TrackerState::Dead,
             session,
             torrent,
