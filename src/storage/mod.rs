@@ -19,15 +19,21 @@ pub struct DiskInfo {
     pub download_dir: Option<PathBuf>,
 }
 
+/// Metadata for a `TorrentFile`
 #[derive(Clone, Debug)]
 pub struct FileInfo {
+    /// Path of the `TorrentFile`
     pub path: PathBuf,
+    /// Byte offset within the `Torrent`
     pub offset: u64,
+    /// Length of the file in bytes
     pub length: u64,
 }
 
 pub struct TorrentFile {
+    /// Metadata of the TorrentFile
     file_info: FileInfo,
+    /// File descriptor of the TorrentFile
     file: File,
 }
 
