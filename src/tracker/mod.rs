@@ -1,4 +1,4 @@
-use crate::metainfo::Metainfo;
+use crate::{metainfo::Metainfo, PeerId};
 use byteorder::ByteOrder;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -37,6 +37,8 @@ pub struct Tracker {
     session: Box<dyn Session<TrackerRequest> + Send>,
     /// Torrent metainfo
     torrent: Arc<Metainfo>,
+    /// Tracker ID
+    tracker_id: Option<ByteBuf>,
 }
 
 unsafe impl Send for Tracker {}
@@ -51,6 +53,7 @@ impl Tracker {
             alive: TrackerState::Dead,
             session,
             torrent,
+            tracker_id: None,
         }
     }
 
@@ -63,16 +66,18 @@ impl Tracker {
 
         self.alive = TrackerState::Alive;
 
+        self.tracker_id = response.tracker_id.clone();
+
         Ok(response)
     }
 
-    pub async fn announce(&mut self, peer_id: Vec<u8>) -> crate::Result<TrackerResponse> {
+    pub async fn announce(&mut self, peer_id: PeerId) -> crate::Result<TrackerResponse> {
         let info_hash = self.torrent.hash()?;
         let left = self.torrent.info.length;
 
         let announce_request = TrackerRequestBuilder::new()
             .info_hash(info_hash)
-            .peer_id(peer_id)
+            .peer_id(peer_id.to_vec())
             .with_port(6881)
             .downloaded(0)
             .uploaded(0)

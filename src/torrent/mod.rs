@@ -1,18 +1,15 @@
-use std::collections::HashMap;
+use futures::{future::join_all, FutureExt, SinkExt, StreamExt};
+use std::net::SocketAddr;
 use std::sync::Arc;
-
-use futures::{StreamExt, SinkExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::codec::Framed;
 
 use crate::message::Handshake;
-use crate::peer::PeerSession;
-use crate::peer::message_codec::HandShakeCodec;
+use crate::peer::{message_codec::HandShakeCodec, PeerHandler};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
 use crate::{metainfo::Metainfo, piece::PieceHandler};
-use crate::{new_peer_id, Peer, PeerId, Receiver, Result, Sender};
+use crate::{Peer, PeerId, Result,};
 use std::sync::RwLock;
 
 type RwFiles = Vec<RwLock<TorrentFile>>;
@@ -33,10 +30,26 @@ impl Discovery {
     pub async fn get_peers(&mut self) -> Result<Vec<Peer>> {
         let mut peers = Vec::new();
 
-        for tracker in self.trackers.iter_mut() {
-            let response = tracker.announce(self.peer_id.to_vec()).await?;
+        let responses = join_all(
+            self.trackers
+                .iter_mut()
+                .map(|tracker| tracker.announce(self.peer_id).boxed())
+                .collect::<Vec<_>>(),
+        )
+        .await;
 
-            peers.extend(response.peers.addrs);
+        for response in responses {
+            let response = match response {
+                Ok(res) => {
+                    println!("Here len {}", res.peers.addrs.len());
+                    res
+                }
+                Err(_) => continue,
+            };
+
+            let peer_addrs = &response.peers.addrs;
+
+            peers.extend(peer_addrs);
         }
 
         Ok(peers)
@@ -47,15 +60,12 @@ impl Discovery {
 pub struct Torrent {
     /// Torrent Metadata
     metainfo: Arc<Metainfo>,
-    /// Handles reading,writing and keeping track of pieces in a torrent.
-    /// May be accessed from multiple threads
-    piece_handler: Arc<PieceHandler>,
-    /// Abstraction for getting peers 
+    /// Abstraction for getting peers
     discovery: Discovery,
-    /// All connected peers to the client
-    peer_sessions: HashMap<PeerId, Sender>,
     /// 20 Byte PeerID of the client
-    peer_id: Arc<PeerId>,
+    peer_id: PeerId,
+    /// Handles Peer in a torrent
+    peer_handler: PeerHandler,
 }
 
 impl Torrent {
@@ -72,7 +82,7 @@ impl Torrent {
             })
             .collect();
 
-        let piece_handler = Arc::new(PieceHandler::from_metainfo(&metainfo, bitfield, files));
+        let piece_handler = Arc::new(RwLock::new(PieceHandler::from_metainfo(&metainfo, bitfield, files)));
 
         let metainfo = Arc::new(metainfo);
 
@@ -95,77 +105,72 @@ impl Torrent {
 
         let discovery = Discovery::new(trackers, peer_id);
 
-        let peer_sessions = HashMap::new();
-
-        let peer_id = Arc::new(peer_id);
+        let peer_handler = PeerHandler::new(piece_handler);
 
         Ok(Self {
             metainfo,
-            piece_handler,
+            peer_handler,
             discovery,
-            peer_sessions,
             peer_id,
         })
     }
 
     /// Start Bittorrent `Handshake` protocol with all the peers and then start the wire protocol.
     pub async fn start(&mut self) -> Result<()> {
-        let mut peers = self.discovery.get_peers().await?;
+        let peers = self.discovery.get_peers().await?;
 
-        let (sender, receiver) = unbounded_channel();
+        let results = join_all(
+            peers
+                .iter()
+                .map(|peer| async {
+                    let metainfo = Arc::clone(&self.metainfo);
 
-        let peers = peers.iter().map(|peer| {
-            let fut = TcpStream::connect(peer.clone());
+                    let result = connect_to_peer(*peer, metainfo,self.peer_id).await?;
 
-            let (sender, mut peer_session) = PeerSession::new(sender.clone());
+                    Ok::<(Handshake, TcpStream), Box<dyn std::error::Error>>(result)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await;
 
-            let metainfo = Arc::clone(&self.metainfo);
+        for result in results {
+            let (id, stream) = if let Ok(result) = result {
+                let (handshake, stream) = result;
 
-            let peer_id = Arc::clone(&self.peer_id);
+                let id = handshake.peer_id;
 
-            tokio::spawn(async move {
-                let stream = match fut.await {
-                    Ok(stream) => stream,
-                    Err(_) => return,
-                };
+                (id, stream)
+            } else {
+                continue;
+            };
 
-                let  mut stream = Framed::new(stream, HandShakeCodec);
-
-                let info_hash = metainfo.hash().expect("Could not calculate hash");
-
-                let handshake = Handshake::new(*peer_id, info_hash);
-
-                if let Err(_) = stream.send(handshake).await {
-                    return;
-                }
-
-                match stream.next().await {
-                    Some(res) => {
-                        match res {
-                            Ok(handshake) => {
-                                let id = handshake.peer_id;
-                            
-                            },
-                            Err(_) => {
-                                return ;
-                            }
-                        }
-
-                    }
-                    None => {
-
-                    }
-                };
-
-            });
-
-            let id = new_peer_id();
-            (id, sender)
-        }).collect::<HashMap<PeerId, Sender>>();
-
-        self.peer_sessions = peers;
+            self.peer_handler.insert_peers(id, stream)
+        }
 
         Ok(())
+    }
+}
+async fn connect_to_peer(
+    peer: SocketAddr,
+    metainfo: Arc<Metainfo>,
+    peer_id: PeerId,
+) -> Result<(Handshake, TcpStream)> {
+    let stream = TcpStream::connect(peer).await?;
+
+    let mut framed = Framed::new(stream, HandShakeCodec);
+
+    let info_hash = metainfo.hash()?;
+    let handshake = Handshake::new(peer_id, info_hash);
+
+    framed.send(handshake).await?;
+
+    loop {
+        if let Some(res) = framed.next().await {
+            let stream = framed.into_parts().io;
+            return Ok((res?, stream));
+        } else {
+            continue;
+        };
     }
 }
 

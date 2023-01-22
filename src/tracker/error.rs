@@ -3,7 +3,6 @@ use std::error::Error;
 
 #[derive(Debug)]
 pub(crate) enum TrackerError {
-    Custom(String),
     Other(String),
 }
 
@@ -12,7 +11,6 @@ impl Error for TrackerError {}
 impl std::fmt::Display for TrackerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Custom(msg) => f.write_str(&msg),
             Self::Other(msg) => f.write_str(&msg),
         }
     }
