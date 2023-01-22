@@ -9,7 +9,7 @@ use crate::peer::{message_codec::HandShakeCodec, PeerHandler};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
 use crate::{metainfo::Metainfo, piece::PieceHandler};
-use crate::{Peer, PeerId, Result,};
+use crate::{Peer, PeerId, Result};
 use std::sync::RwLock;
 
 type RwFiles = Vec<RwLock<TorrentFile>>;
@@ -82,7 +82,9 @@ impl Torrent {
             })
             .collect();
 
-        let piece_handler = Arc::new(RwLock::new(PieceHandler::from_metainfo(&metainfo, bitfield, files)));
+        let piece_handler = Arc::new(RwLock::new(PieceHandler::from_metainfo(
+            &metainfo, bitfield, files,
+        )));
 
         let metainfo = Arc::new(metainfo);
 
@@ -125,7 +127,7 @@ impl Torrent {
                 .map(|peer| async {
                     let metainfo = Arc::clone(&self.metainfo);
 
-                    let result = connect_to_peer(*peer, metainfo,self.peer_id).await?;
+                    let result = connect_to_peer(*peer, metainfo, self.peer_id).await?;
 
                     Ok::<(Handshake, TcpStream), Box<dyn std::error::Error>>(result)
                 })

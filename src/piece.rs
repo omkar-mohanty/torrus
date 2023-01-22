@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 use crate::{
     block::Block,
     metainfo::Metainfo,
-    storage::{IoVec, TorrentFile},
+    storage::TorrentFile,
     utils::RangeExt,
     Bitfield, Hash, PieceIndex, Result,
 };
@@ -137,26 +137,12 @@ impl Piece {
         Ok(())
     }
 
-    pub fn offset(&self) -> usize {
-        self.piece_info.offset
-    }
-
     pub fn length(&self) -> usize {
         self.piece_info.len
     }
 
     pub fn hash(&self) -> &Hash {
         &self.piece_info.hash
-    }
-
-    /// Assumes the files array is sorted accodring to offset otherwise the output range may not be
-    /// contineous
-    pub fn get_overlapping_files(&self) -> Range<usize> {
-        self.piece_info.file_range.clone()
-    }
-
-    fn get_data(&self, file_offset: u64) -> IoVec {
-        unimplemented!()
     }
 }
 
@@ -232,8 +218,15 @@ impl PieceHandler {
 
     pub fn insert_block(&mut self, block: Block) -> Result<()> {
         let index = block.block_info.piece_index;
+        let piece = &mut self.pieces[index];
 
-        Ok(self.pieces[index].insert_block(block)?)
+        piece.insert_block(block)?;
+
+        if piece.is_complete() && piece.validate() {
+            piece.write(&mut self.files)?;
+        }
+
+        Ok(())
     }
 }
 

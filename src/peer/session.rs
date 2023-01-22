@@ -22,10 +22,7 @@ impl PeerSession {
     pub fn new(msg_send: Sender) -> (Sender, Self) {
         let (sender, msg_rcv) = mpsc::unbounded_channel::<Message>();
 
-        let peer_session = PeerSession {
-            msg_send,
-            msg_rcv,
-        };
+        let peer_session = PeerSession { msg_send, msg_rcv };
 
         (sender, peer_session)
     }
