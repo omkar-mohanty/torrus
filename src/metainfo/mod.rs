@@ -85,6 +85,7 @@ pub struct Metainfo {
     #[serde(default)]
     #[serde(rename = "created by")]
     pub created_by: Option<String>,
+    pub download_dir: Option<PathBuf>
 }
 
 impl Metainfo {
@@ -122,6 +123,10 @@ impl Metainfo {
 
                     offset += file.length;
 
+                    if let Some(download_dir) = self.download_dir.clone() {
+                        path = download_dir.join(path);
+                    }
+
                     FileInfo {
                         path,
                         offset: offset.clone(),
@@ -131,7 +136,12 @@ impl Metainfo {
                 .collect()
         } else {
             let file_string = &self.info.name;
-            let path = PathBuf::from(file_string);
+            let mut path = PathBuf::from(file_string);
+
+            if let Some(download_dir) = self.download_dir.clone() {
+                path = download_dir.join(path);
+            }
+
             vec![FileInfo {
                 path,
                 offset: 0,

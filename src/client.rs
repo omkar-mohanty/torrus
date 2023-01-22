@@ -23,4 +23,10 @@ impl Client {
 
         Ok(self.torrents.push(torrent))
     }
+
+    pub async fn run(self) {
+        for mut torrent in self.torrents {
+           let _ = torrent.start().await;
+        }
+    }
 }

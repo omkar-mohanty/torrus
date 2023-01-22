@@ -41,7 +41,6 @@ impl Discovery {
         for response in responses {
             let response = match response {
                 Ok(res) => {
-                    println!("Here len {}", res.peers.addrs.len());
                     res
                 }
                 Err(_) => continue,
@@ -149,7 +148,7 @@ impl Torrent {
             self.peer_handler.insert_peers(id, stream)
         }
 
-        Ok(())
+        unimplemented!("Start peer handler");
     }
 }
 async fn connect_to_peer(
