@@ -1,7 +1,12 @@
 use std::error::Error;
+use hyper::{http::uri::InvalidUri, http::Error as HyperHttpError, Error as HyperError};
+use serde_bencode::Error as BencodeError;
+use url::ParseError;
 
 #[derive(Debug)]
 pub struct TorrusError(String);
+
+type Result<'a, T> = std::result::Result<T, &'a str>;
 
 impl Error for TorrusError {}
 
@@ -17,10 +22,60 @@ impl std::fmt::Display for TorrusError {
     }
 }
 
+impl<'a, T> From<Result<'a, T>> for TorrusError {
+    fn from(value: Result<'a, T>) -> Self {
+        match value {
+            Ok(val) => Ok(val).into(),
+            Err(err) => TorrusError(err.to_string()),
+        }
+    }
+}
+
 impl From<std::io::Error> for TorrusError {
     fn from(value: std::io::Error) -> Self {
         TorrusError::new(&value.to_string())
     }
 }
 
+impl From<HyperError> for TorrusError {
+    fn from(value: HyperError) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
+impl From<BencodeError> for TorrusError {
+    fn from(value: BencodeError) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
+impl From<InvalidUri> for TorrusError {
+    fn from(value: InvalidUri) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
+impl From<HyperHttpError> for TorrusError {
+    fn from(value: HyperHttpError) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
+impl From<ParseError> for TorrusError {
+    fn from(value: ParseError) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
 unsafe impl Send for TorrusError {}
+
+#[cfg(test)]
+mod tests {
+    type Result<'a, T> = std::result::Result<T, &'a str>;
+    #[test]
+    fn test_err() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let err: Result<()> = Err("Value");
+
+        Ok(())
+    }
+}

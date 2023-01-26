@@ -8,7 +8,7 @@ use sha1::{Digest, Sha1};
 
 use crate::{
     block::Block, metainfo::Metainfo, storage::TorrentFile, utils::RangeExt, Bitfield, Hash,
-    PieceIndex, Result,
+    PieceIndex, Result, error::TorrusError,
 };
 
 /// Tracks all the pieces in the current torrent.
@@ -97,7 +97,7 @@ impl Piece {
                 Ok(())
             }
 
-            Occupied(_) => Err("Duplicate Block".into()),
+            Occupied(_) => Err(TorrusError::new("Duplicate Block")),
         };
 
         res

@@ -14,5 +14,5 @@ pub enum Direction {
     Outbound,
 }
 
-pub use handler::{PeerHandle, PeerEvent};
+pub use handler::{PeerEvent, PeerHandle};
 pub use session::PeerSession;

@@ -2,7 +2,7 @@ use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::PeerSession;
 use crate::torrent::Context;
-use crate::{Receiver, Sender, PeerId};
+use crate::{PeerId, Receiver, Sender};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::{net::TcpStream, sync::mpsc::unbounded_channel};
@@ -15,8 +15,8 @@ pub struct PeerContext {
 }
 
 pub struct PeerEvent {
-   pub peer_id: PeerId,
-   pub peer_state: PeerState,
+    pub peer_id: PeerId,
+    pub peer_state: PeerState,
 }
 
 type Result<T> = std::result::Result<T, crate::error::TorrusError>;
@@ -65,7 +65,11 @@ impl PeerHandle {
     }
 }
 
-async fn handle_receiver(mut receiver: Receiver, context: Arc<Context>, peer_id: PeerId) -> Result<()> {
+async fn handle_receiver(
+    mut receiver: Receiver,
+    context: Arc<Context>,
+    peer_id: PeerId,
+) -> Result<()> {
     use Message::*;
 
     loop {

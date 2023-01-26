@@ -1,8 +1,7 @@
-pub mod error;
+use crate::{Result, TorrusError};
 
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, BytesMut};
-use error::ConnectionError;
 use futures::{SinkExt, StreamExt};
 use hyper::body::HttpBody;
 use hyper::{client::connect::Connect, Body, Client};
@@ -18,8 +17,6 @@ use tokio_util::udp::UdpFramed;
 use url::Url;
 
 use super::{Peers, TrackerRequest, TrackerResponse};
-
-type Result<T> = std::result::Result<T, ConnectionError>;
 
 pub struct Query(HashMap<String, String>);
 pub struct Bytes(Vec<u8>);
@@ -179,7 +176,7 @@ fn decode_tracker_response(src: &mut BytesMut) -> TrackerResponse {
 }
 
 impl Decoder for UdpMessageCodec {
-    type Error = ConnectionError;
+    type Error = TorrusError;
 
     type Item = UdpResponse;
 
@@ -221,7 +218,7 @@ impl Decoder for UdpMessageCodec {
                     let _transaction_id = src.get_u32();
                     let err_message = String::from_utf8_lossy(&src).to_string();
 
-                    return Err(ConnectionError::Custom(err_message));
+                    return Err(TorrusError::new(&err_message));
                 }
                 _ => None,
             }
@@ -358,9 +355,10 @@ impl UdpSession {
             result = socket.next().await;
         }
 
-        let result = result.unwrap()?;
-
-        Ok(result)
+        match result.unwrap() {
+            Ok(result) => Ok(result),
+            Err(err) => Err(TorrusError::new(&err.to_string()))
+        }
     }
 
     async fn send_message(&self, tracker_request: TrackerRequest) -> Result<UdpResponse> {
@@ -377,7 +375,7 @@ impl UdpSession {
             return Ok(response);
         }
 
-        Err(ConnectionError::Other("Could not resolve url".to_string()))
+        Err(TorrusError::new("Could not resolve url"))
     }
 }
 
@@ -403,8 +401,8 @@ where
         };
 
         if let None = response.tracker_response {
-            return Err(ConnectionError::Other(
-                "Could not get tracker response".to_string(),
+            return Err(TorrusError::new(
+                "Could not get tracker response",
             ));
         };
 
@@ -447,7 +445,7 @@ where
 
         match status_code {
             StatusCode::OK => Self::process_body(response).await,
-            StatusCode::BAD_REQUEST => Err(ConnectionError::Custom("HTTP Bad request".to_string())),
+            StatusCode::BAD_REQUEST => Err(TorrusError::new("HTTP Bad request")),
             StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT => {
                 self.handle_redirect(response).await
             }
@@ -467,7 +465,7 @@ where
 
                 Ok(Bytes(res))
             }
-            None => return Err(ConnectionError::Custom("Received empty Body".to_string())),
+            None => return Err(TorrusError::new("Received empty Body")),
         }
     }
 }

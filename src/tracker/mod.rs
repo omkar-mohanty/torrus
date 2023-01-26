@@ -1,4 +1,4 @@
-use crate::{torrent::Context, PeerId};
+use crate::{torrent::Context, PeerId, Result};
 use byteorder::ByteOrder;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -16,8 +16,6 @@ use connection::{from_url, Query, Session};
 
 mod connection;
 mod error;
-
-type Error = Box<dyn std::error::Error>;
 
 pub enum TrackerState {
     Alive,
@@ -61,7 +59,7 @@ impl Tracker {
     pub async fn send_request(
         &mut self,
         tracker_request: TrackerRequest,
-    ) -> Result<TrackerResponse, Error> {
+    ) -> Result<TrackerResponse> {
         let response = self.session.send(tracker_request).await?;
 
         self.alive = TrackerState::Alive;
@@ -179,7 +177,7 @@ impl DictPeer {
     }
 }
 
-fn deserialize_ip_string<'de, D>(de: D) -> Result<IpAddr, D::Error>
+fn deserialize_ip_string<'de, D>(de: D) -> std::result::Result<IpAddr, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -190,13 +188,13 @@ where
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str("expecting a Ipv4 or Ipv6 address")
         }
-        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
         where
             E: serde::de::Error,
         {
             IpAddr::from_str(v).map_err(|e| E::custom(format!("Could not parse ip: {}", e)))
         }
-        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        fn visit_bytes<E>(self, v: &[u8]) -> std::result::Result<Self::Value, E>
         where
             E: serde::de::Error,
         {
@@ -246,7 +244,7 @@ pub struct Peers {
 }
 
 impl<'de> serde::Deserialize<'de> for Peers {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -260,7 +258,7 @@ impl<'de> serde::Deserialize<'de> for Peers {
                 formatter.write_str("a list of peers in dict or binary format")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) ->std::result::Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
@@ -271,7 +269,7 @@ impl<'de> serde::Deserialize<'de> for Peers {
                 Ok(Peers { addrs: peers })
             }
 
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            fn visit_bytes<E>(self, v: &[u8]) ->std::result::Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {

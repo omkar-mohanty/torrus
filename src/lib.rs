@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use bitvec::{prelude::Msb0, vec::BitVec};
+use error::TorrusError;
 use rand::{thread_rng, Rng};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -30,7 +31,7 @@ type Bitfield = BitVec<u8, Msb0>;
 type Sender = UnboundedSender<message::Message>;
 type Receiver = UnboundedReceiver<message::Message>;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T> = std::result::Result<T, TorrusError>;
 
 pub fn new_peer_id() -> PeerId {
     thread_rng().gen::<PeerId>()
