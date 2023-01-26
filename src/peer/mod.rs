@@ -3,7 +3,6 @@ pub mod message_codec;
 mod session;
 mod state;
 
-pub use handler::PeerHandler;
 use message_codec::PeerCodec;
 
 use crate::error::TorrusError as PeerError;
@@ -15,4 +14,5 @@ pub enum Direction {
     Outbound,
 }
 
+pub use handler::{PeerHandle, PeerEvent};
 pub use session::PeerSession;

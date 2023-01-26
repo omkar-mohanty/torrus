@@ -85,7 +85,7 @@ pub struct Metainfo {
     #[serde(default)]
     #[serde(rename = "created by")]
     pub created_by: Option<String>,
-    pub download_dir: Option<PathBuf>
+    pub download_dir: Option<PathBuf>,
 }
 
 impl Metainfo {
@@ -108,6 +108,7 @@ impl Metainfo {
         total_pieces as usize
     }
 
+    /// Get TorrentFile metainfo
     pub fn get_files(&self) -> Vec<FileInfo> {
         let files = if let Some(files) = &self.info.files {
             let mut offset = 0;

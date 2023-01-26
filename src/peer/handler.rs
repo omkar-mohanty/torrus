@@ -1,40 +1,42 @@
+use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::PeerSession;
-use crate::piece::PieceHandler;
-use crate::{PeerId, Receiver, Result, Sender};
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use crate::torrent::Context;
+use crate::{Receiver, Sender, PeerId};
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 use tokio::{net::TcpStream, sync::mpsc::unbounded_channel};
 
-/// Handles all Peer events
-pub struct PeerHandler {
-    /// Keeps track of all the pieces in the torrent
-    piece_handler: Arc<RwLock<PieceHandler>>,
-    /// The peer sends messages through sender
-    sender: Sender,
-    /// Event Receiver
-    receiver: Receiver,
-    /// Torrent Peers
-    peers: HashMap<PeerId, Sender>,
+use super::state::PeerState;
+
+pub struct PeerContext {
+    peer_id: PeerId,
+    peer_state: PeerState,
 }
 
-impl PeerHandler {
-    pub fn new(piece_handler: Arc<RwLock<PieceHandler>>) -> Self {
-        let peers = HashMap::new();
+pub struct PeerEvent {
+   pub peer_id: PeerId,
+   pub peer_state: PeerState,
+}
 
-        let (sender, receiver) = unbounded_channel();
-        Self {
-            receiver,
-            piece_handler,
-            peers,
-            sender,
-        }
-    }
+type Result<T> = std::result::Result<T, crate::error::TorrusError>;
 
-    pub fn insert_peers(&mut self, peer_id: PeerId, stream: TcpStream) {
-        let (sender, mut peer_session) = PeerSession::new(self.sender.clone());
+pub struct PeerHandle {
+    /// Connection state of the peer
+    pub peer_state: PeerState,
+    /// Command sender for the peer
+    pub sender: Sender,
+    /// Receiver for events from the peer
+    join_handle: JoinHandle<Result<()>>,
+}
+
+impl PeerHandle {
+    pub fn new(stream: TcpStream, context: Arc<Context>, peer_id: PeerId) -> Self {
+        let peer_state = PeerState::new();
+
+        let (msg_send, receiver) = unbounded_channel();
+
+        let (sender, mut peer_session) = PeerSession::new(msg_send);
 
         tokio::spawn(async move {
             if let Err(_) = peer_session.start(stream).await {
@@ -42,31 +44,47 @@ impl PeerHandler {
             }
         });
 
-        self.peers.insert(peer_id, sender);
-    }
+        let join_handle = tokio::spawn(async move {
+            handle_receiver(receiver, context, peer_id).await?;
+            Ok::<(), crate::error::TorrusError>(())
+        });
 
-    pub async fn start_handling(mut self) -> Result<()> {
-        loop {
-            if let Some(msg) = self.receiver.recv().await {
-                if let Err(err) = self.handle_message(msg) {
-                    log::error!("Error : {}",err);
-                    continue;
-                }
-            }
+        Self {
+            peer_state,
+            sender,
+            join_handle,
         }
     }
 
-    fn handle_message(&mut self, msg: Message) -> Result<()> {
-        use Message::*;
+    pub fn is_finished(&self) -> bool {
+        self.join_handle.is_finished()
+    }
 
-        match msg {
-            Piece(block) => {
-                while self.piece_handler.try_write().is_err() {}
+    pub fn set_state(&mut self, peer_state: PeerState) {
+        self.peer_state = peer_state;
+    }
+}
 
-                Ok(self.piece_handler.write().unwrap().insert_block(block)?)
-            }
-            _ => {
-                unimplemented!("Handle all swarm message types");
+async fn handle_receiver(mut receiver: Receiver, context: Arc<Context>, peer_id: PeerId) -> Result<()> {
+    use Message::*;
+
+    loop {
+        if let Some(msg) = receiver.recv().await {
+            match msg {
+                KeepAlive => {}
+                Choke => {}
+                Piece(block) => {
+                    if context.piece_handler.try_write().is_ok() {
+                        let piece_handler = &mut context.piece_handler.write().unwrap();
+
+                        if let Err(err) = piece_handler.insert_block(block) {
+                            return Err(TorrusError::new(&err.to_string()));
+                        }
+                    }
+                }
+                _ => {
+                    unimplemented!("Implement all branches")
+                }
             }
         }
     }

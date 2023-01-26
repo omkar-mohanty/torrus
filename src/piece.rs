@@ -7,11 +7,8 @@ use std::{
 use sha1::{Digest, Sha1};
 
 use crate::{
-    block::Block,
-    metainfo::Metainfo,
-    storage::TorrentFile,
-    utils::RangeExt,
-    Bitfield, Hash, PieceIndex, Result,
+    block::Block, metainfo::Metainfo, storage::TorrentFile, utils::RangeExt, Bitfield, Hash,
+    PieceIndex, Result,
 };
 
 /// Tracks all the pieces in the current torrent.

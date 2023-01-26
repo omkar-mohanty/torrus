@@ -1,5 +1,23 @@
 use crate::{metainfo::Metainfo, new_peer_id, torrent::Torrent, PeerId, Result};
 
+pub enum TorrentCommand {
+    Progress
+}
+
+type Sender = tokio::sync::mpsc::UnboundedSender<TorrentCommand>;
+type TorrentId = crate::Hash;
+
+struct TorrentInfo {
+    name: String,
+    created_by: Option<String>,
+    download_dir: Option<String>,
+}
+
+struct TorrentHandle {
+    torrent_info: TorrentInfo,
+    sender: Sender,
+}
+
 /// Torrent Client which manages torrents and is initiated from the entry point
 pub struct Client {
     torrents: Vec<Torrent>,
@@ -26,7 +44,7 @@ impl Client {
 
     pub async fn run(self) {
         for mut torrent in self.torrents {
-           let _ = torrent.start().await;
+            let _ = torrent.start().await;
         }
     }
 }

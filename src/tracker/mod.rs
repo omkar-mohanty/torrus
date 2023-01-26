@@ -1,4 +1,4 @@
-use crate::{metainfo::Metainfo, PeerId};
+use crate::{torrent::Context, PeerId};
 use byteorder::ByteOrder;
 use serde::Deserializer;
 use serde_bytes::ByteBuf;
@@ -36,7 +36,7 @@ pub struct Tracker {
     /// Abstraction over tracker protocol
     session: Box<dyn Session<TrackerRequest> + Send>,
     /// Torrent metainfo
-    torrent: Arc<Metainfo>,
+    torrent: Arc<Context>,
     /// Tracker ID
     tracker_id: Option<ByteBuf>,
 }
@@ -46,7 +46,7 @@ unsafe impl Send for Tracker {}
 unsafe impl Sync for Tracker {}
 
 impl Tracker {
-    fn new(url: Url, torrent: Arc<Metainfo>) -> Self {
+    fn new(url: Url, torrent: Arc<Context>) -> Self {
         let session = from_url(url);
 
         Self {
@@ -72,11 +72,11 @@ impl Tracker {
     }
 
     pub async fn announce(&mut self, peer_id: PeerId) -> crate::Result<TrackerResponse> {
-        let info_hash = self.torrent.hash()?;
-        let left = self.torrent.info.length;
+        let info_hash = self.torrent.hash();
+        let left = self.torrent.length();
 
         let announce_request = TrackerRequestBuilder::new()
-            .info_hash(info_hash)
+            .info_hash(info_hash.to_vec())
             .peer_id(peer_id.to_vec())
             .with_port(6881)
             .downloaded(0)
@@ -90,7 +90,7 @@ impl Tracker {
         Ok(response)
     }
 
-    pub fn from_url_string(url: &str, metainfo: Arc<Metainfo>) -> crate::Result<Self> {
+    pub fn from_url_string(url: &str, metainfo: Arc<Context>) -> crate::Result<Self> {
         let url = Url::parse(&url)?;
 
         Ok(Self::new(url, metainfo))
