@@ -15,7 +15,6 @@ use url::{form_urlencoded::byte_serialize, Url};
 use connection::{from_url, Query, Session};
 
 mod connection;
-mod error;
 
 pub enum TrackerState {
     Alive,
@@ -258,7 +257,7 @@ impl<'de> serde::Deserialize<'de> for Peers {
                 formatter.write_str("a list of peers in dict or binary format")
             }
 
-            fn visit_seq<A>(self, mut seq: A) ->std::result::Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
@@ -269,7 +268,7 @@ impl<'de> serde::Deserialize<'de> for Peers {
                 Ok(Peers { addrs: peers })
             }
 
-            fn visit_bytes<E>(self, v: &[u8]) ->std::result::Result<Self::Value, E>
+            fn visit_bytes<E>(self, v: &[u8]) -> std::result::Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {

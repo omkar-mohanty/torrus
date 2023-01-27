@@ -1,6 +1,6 @@
-use std::error::Error;
 use hyper::{http::uri::InvalidUri, http::Error as HyperHttpError, Error as HyperError};
 use serde_bencode::Error as BencodeError;
+use std::error::Error;
 use url::ParseError;
 
 #[derive(Debug)]
@@ -70,12 +70,4 @@ impl From<ParseError> for TorrusError {
 unsafe impl Send for TorrusError {}
 
 #[cfg(test)]
-mod tests {
-    type Result<'a, T> = std::result::Result<T, &'a str>;
-    #[test]
-    fn test_err() -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let err: Result<()> = Err("Value");
-
-        Ok(())
-    }
-}
+mod tests {}

@@ -1,23 +1,31 @@
 use clap::Parser;
-use std::fmt::Display;
+use clap::Subcommand;
 use std::path::PathBuf;
 use torrus::metainfo::Metainfo;
 use torrus::Client;
 use torrus::Result;
 
 #[derive(Parser)]
+#[clap(author = "Omkar", version)]
+/// A Bittorrent client written in Rust
 pub struct Cli {
-    /// Path of the download directory
-    #[arg(short, value_name = "DOWNLOAD DIR")]
-    output: Option<PathBuf>,
-    /// Path to the .torrent file
-    path: PathBuf,
+    /// Command to either download or list all torrents
+    #[command(subcommand)]
+    command: Commands,
 }
 
-impl Display for Cli {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("Download directory:\t{:?}", self.output))
-    }
+#[derive(Subcommand)]
+enum Commands {
+    /// Download from a .torrent file
+    Download {
+        /// Path of the download directory
+        #[arg(short, value_name = "DOWNLOAD DIR")]
+        output: Option<PathBuf>,
+        /// Path to the .torrent file
+        path: PathBuf,
+    },
+    /// List all torrents currently in the client
+    List,
 }
 
 #[tokio::main]
@@ -26,18 +34,25 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    log::info!("{}", cli);
+    match cli.command {
+        Commands::Download { output, path } => {
+            let file = std::fs::read(path)?;
 
-    let file = std::fs::read(cli.path)?;
+            let mut metainfo = Metainfo::from_bytes(&file)?;
 
-    let mut metainfo = Metainfo::from_bytes(&file)?;
+            metainfo.download_dir = output;
 
-    metainfo.download_dir = cli.output;
+            let mut client = Client::new();
 
-    let mut client = Client::new();
+            client.add_torrent_from_metainfo(metainfo)?;
 
-    client.add_torrent_from_metainfo(metainfo)?;
+            client.run().await;
+        }
+        Commands::List => {
+            let  client = Client::new();
+            client.list_torrents();
+        }
+    }
 
-    client.run().await;
     Ok(())
 }

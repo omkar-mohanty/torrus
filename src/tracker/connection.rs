@@ -357,7 +357,7 @@ impl UdpSession {
 
         match result.unwrap() {
             Ok(result) => Ok(result),
-            Err(err) => Err(TorrusError::new(&err.to_string()))
+            Err(err) => Err(TorrusError::new(&err.to_string())),
         }
     }
 
@@ -401,9 +401,7 @@ where
         };
 
         if let None = response.tracker_response {
-            return Err(TorrusError::new(
-                "Could not get tracker response",
-            ));
+            return Err(TorrusError::new("Could not get tracker response"));
         };
 
         let tracker_response = response.tracker_response.unwrap();

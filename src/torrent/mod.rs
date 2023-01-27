@@ -7,6 +7,7 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::codec::Framed;
 
 use crate::client::TorrentCommand;
+use crate::error::TorrusError;
 use crate::message::Handshake;
 use crate::peer::{message_codec::HandShakeCodec, PeerEvent, PeerHandle};
 use crate::storage::TorrentFile;
@@ -22,11 +23,6 @@ pub type PeerEventReceiver = tokio::sync::mpsc::UnboundedReceiver<PeerEvent>;
 
 pub type TorrentCommandSender = tokio::sync::mpsc::UnboundedSender<TorrentCommand>;
 pub type TorrentCommandReceiver = tokio::sync::mpsc::UnboundedReceiver<TorrentCommand>;
-
-pub enum TorrentEvent {
-    Command(TorrentCommand),
-    PeerEvent(PeerEvent),
-}
 
 /// Abstracts over the ways of finding peers in a swarm
 struct Discovery {
@@ -198,7 +194,7 @@ impl Torrent {
 
                     let result = connect_to_peer(*peer, metainfo, self.client_id).await?;
 
-                    Ok::<(Handshake, TcpStream), Box<dyn std::error::Error>>(result)
+                    Ok::<(Handshake, TcpStream), TorrusError>(result)
                 })
                 .collect::<Vec<_>>(),
         )
@@ -230,12 +226,13 @@ impl Torrent {
                     if let Some(event) = peer_event {
                         self.handle_peer_event(event);
                     }
-
                 }
 
                 cmd = self.cmd_rcv.recv() => {
-
-            }
+                    if let Some(command) = cmd {
+                    self.handle_command(command);
+                    }
+                }
             }
         }
     }
@@ -251,7 +248,10 @@ impl Torrent {
 
         match command {
             Progress => {
-                unimplemented!("Implement progress tracker");
+                let have_count = self.context.piece_handler.read().unwrap().have_count();
+                let miss_count = self.context.piece_handler.read().unwrap().miss_count();
+
+                log::info!("Progress:\t{}%", (have_count / miss_count) * 100);
             }
         }
     }
@@ -295,7 +295,6 @@ mod tests {
         let peer_id = new_peer_id();
         let (_, receiver) = unbounded_channel();
         let _ = Torrent::from_metainfo(metainfo, peer_id, receiver);
-
         Ok(())
     }
 }
