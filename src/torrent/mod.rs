@@ -1,25 +1,22 @@
 use futures::{future::join_all, FutureExt, SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::codec::Framed;
 
+use crate::block::Block;
 use crate::client::TorrentCommand;
 use crate::error::TorrusError;
 use crate::message::Handshake;
-use crate::peer::{message_codec::HandShakeCodec, PeerEvent, PeerHandle};
+use crate::peer::{message_codec::HandShakeCodec, new_peer, Peer};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
 use crate::{metainfo::Metainfo, piece::PieceHandler};
-use crate::{Hash, Peer, PeerId, Result};
+use crate::{Bitfield, Hash, PeerAddr, PeerId, Result};
 use std::sync::RwLock;
 
 type RwFiles = Vec<RwLock<TorrentFile>>;
-
-pub type PeerEventSender = tokio::sync::mpsc::UnboundedSender<PeerEvent>;
-pub type PeerEventReceiver = tokio::sync::mpsc::UnboundedReceiver<PeerEvent>;
 
 pub type TorrentCommandSender = tokio::sync::mpsc::UnboundedSender<TorrentCommand>;
 pub type TorrentCommandReceiver = tokio::sync::mpsc::UnboundedReceiver<TorrentCommand>;
@@ -37,7 +34,7 @@ impl Discovery {
         Self { trackers, peer_id }
     }
 
-    pub async fn get_peers(&mut self) -> Result<Vec<Peer>> {
+    pub async fn get_peers(&mut self) -> Result<Vec<PeerAddr>> {
         let mut peers = Vec::new();
 
         let responses = join_all(
@@ -72,32 +69,20 @@ pub struct Context {
     pub client_id: PeerId,
     /// V1 Bittorrent metainfo
     pub metainfo: Metainfo,
-    /// Channel to send events
-    pub sender: PeerEventSender,
 }
 
 impl Context {
-    pub fn new(
-        piece_handler: PieceHandler,
-        client_id: PeerId,
-        metainfo: Metainfo,
-    ) -> Result<(Self, PeerEventReceiver)> {
+    pub fn new(piece_handler: PieceHandler, client_id: PeerId, metainfo: Metainfo) -> Result<Self> {
         let piece_handler = RwLock::new(piece_handler);
 
         let info_hash = metainfo.hash()?;
 
-        let (sender, receiver) = unbounded_channel();
-
-        Ok((
-            Self {
-                piece_handler,
-                info_hash,
-                client_id,
-                metainfo,
-                sender,
-            },
-            receiver,
-        ))
+        Ok(Self {
+            piece_handler,
+            info_hash,
+            client_id,
+            metainfo,
+        })
     }
 
     pub fn hash(&self) -> &Hash {
@@ -106,6 +91,38 @@ impl Context {
 
     pub fn length(&self) -> u64 {
         self.metainfo.info.length
+    }
+
+    fn get_read_handle(&self) -> Result<RwLockReadGuard<PieceHandler>> {
+        match self.piece_handler.read() {
+            Ok(handler) => Ok(handler),
+            Err(err) => {
+                log::error!("Error:\t{}", err);
+                Err(TorrusError::new(&err.to_string()))
+            }
+        }
+    }
+
+    fn get_write_handle(&self) -> Result<RwLockWriteGuard<PieceHandler>> {
+        match self.piece_handler.write() {
+            Ok(handler) => Ok(handler),
+            Err(err) => {
+                log::error!("Error:\t{}", err);
+                Err(TorrusError::new(&err.to_string()))
+            }
+        }
+    }
+
+    pub fn match_bitfield_len(&self, len: usize) -> Result<bool> {
+        let handler = self.get_read_handle()?;
+
+        Ok(handler.match_bitfield_len(len))
+    }
+
+    pub fn insert_block(&self, block: Block) -> Result<()> {
+        let mut handler = self.get_write_handle()?;
+
+        Ok(handler.insert_block(block)?)
     }
 }
 
@@ -118,9 +135,7 @@ pub struct Torrent {
     /// 20 Byte PeerID of the client
     client_id: PeerId,
     /// hash map of peerID and the coresponding peer handle
-    peers: HashMap<PeerId, PeerHandle>,
-    /// Channel to receive Torrent events
-    peer_event: PeerEventReceiver,
+    peers: HashMap<PeerId, Peer>,
     /// Channel to receive commands from client,
     cmd_rcv: TorrentCommandReceiver,
 }
@@ -145,7 +160,7 @@ impl Torrent {
 
         let piece_handler = PieceHandler::from_metainfo(&metainfo, bitfield, files);
 
-        let (context, receiver) = Context::new(piece_handler, client_id, metainfo)?;
+        let context = Context::new(piece_handler, client_id, metainfo)?;
 
         let context = Arc::new(context);
 
@@ -175,7 +190,6 @@ impl Torrent {
             discovery,
             client_id,
             peers,
-            peer_event: receiver,
             cmd_rcv,
         })
     }
@@ -211,7 +225,7 @@ impl Torrent {
                 continue;
             };
 
-            let handle = PeerHandle::new(stream, Arc::clone(&self.context), id);
+            let handle = new_peer(stream, Arc::clone(&self.context), id);
 
             self.peers.insert(id, handle);
         }
@@ -222,24 +236,12 @@ impl Torrent {
     async fn handle_events(&mut self) -> Result<()> {
         loop {
             tokio::select! {
-                peer_event = self.peer_event.recv() => {
-                    if let Some(event) = peer_event {
-                        self.handle_peer_event(event);
-                    }
-                }
-
-                cmd = self.cmd_rcv.recv() => {
+             cmd = self.cmd_rcv.recv() => {
                     if let Some(command) = cmd {
                     self.handle_command(command);
                     }
                 }
             }
-        }
-    }
-
-    fn handle_peer_event(&mut self, peer_event: PeerEvent) {
-        if let Some(handle) = self.peers.get_mut(&peer_event.peer_id) {
-            handle.set_state(peer_event.peer_state);
         }
     }
 
@@ -285,6 +287,7 @@ async fn connect_to_peer(
 mod tests {
     use super::*;
     use crate::{new_peer_id, Result};
+    use tokio::sync::mpsc::unbounded_channel;
 
     const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
 

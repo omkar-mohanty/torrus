@@ -21,7 +21,7 @@ mod utils;
 
 type Hash = Vec<u8>;
 type PeerId = [u8; 20];
-type Peer = SocketAddr;
+type PeerAddr = SocketAddr;
 
 /// 0 indexed Bitfield which represents the pieces which the client has and does not have
 type PieceIndex = usize;

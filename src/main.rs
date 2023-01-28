@@ -44,12 +44,14 @@ async fn main() -> Result<()> {
 
             let mut client = Client::new();
 
-            client.add_torrent_from_metainfo(metainfo)?;
+            if let Err(err) = client.add_torrent_from_metainfo(metainfo) {
+                log::error!("Error:\t{}", err);
+            }
 
             client.run().await;
         }
         Commands::List => {
-            let  client = Client::new();
+            let client = Client::new();
             client.list_torrents();
         }
     }

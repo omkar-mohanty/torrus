@@ -103,6 +103,8 @@ impl Piece {
         res
     }
 
+    /// Iterate over all the files for which the [`Piece`] overlaps with, find all the [`Block`]
+    /// which overlap over a certain file and then finally write the data to the [`TorrentFile`]
     pub fn write(&self, files: &mut [RwLock<TorrentFile>]) -> Result<()> {
         let files = &mut files[self.piece_info.file_range.clone()];
 
@@ -201,6 +203,8 @@ impl PieceHandler {
         self.have_count
     }
 
+    /// For now the [`PieceHandler`] picks a [`Piece`] which is pending later a rarest first
+    /// algorithm should be implemented.
     pub fn pick_piece(&self) -> Option<PieceIndex> {
         for index in 0..self.bitfield.len() {
             let piece = &self.pieces[index];
@@ -213,6 +217,8 @@ impl PieceHandler {
         return None;
     }
 
+    /// Insert a [`Block`] into the coresponding [`Piece`].
+    /// If the Piece is complete then write it to the disk.
     pub fn insert_block(&mut self, block: Block) -> Result<()> {
         let index = block.block_info.piece_index;
         let piece = &mut self.pieces[index];
@@ -225,8 +231,16 @@ impl PieceHandler {
 
         Ok(())
     }
+
+    /// Check if the input [`Bitfield`] matches with [`PieceHandler`]'s Bitfield
+    pub fn match_bitfield_len(&self, len: usize) -> bool {
+        self.bitfield.len() == len
+    }
 }
 
+/// Finds the overlapping [`TorrentFile`] given a individual [`PieceInfo`]. Bittorrent specs
+/// specify that a Torrent can be thought of as a large contineous byte array, so a [`Piece`] might
+/// overlap with multiple files in the said byte array.
 fn get_overlapping_range(files: &[RwLock<TorrentFile>], piece: &PieceInfo) -> Range<usize> {
     let piece_range = piece.offset..(piece.offset + piece.len);
 
