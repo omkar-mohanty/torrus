@@ -1,7 +1,7 @@
 use futures::{future::join_all, FutureExt, SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
@@ -13,8 +13,7 @@ use crate::peer::{message_codec::HandShakeCodec, new_peer, Peer};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
 use crate::{metainfo::Metainfo, piece::PieceHandler};
-use crate::{Bitfield, Hash, PeerAddr, PeerId, Result};
-use std::sync::RwLock;
+use crate::{Hash, PeerAddr, PeerId, Result};
 
 type RwFiles = Vec<RwLock<TorrentFile>>;
 

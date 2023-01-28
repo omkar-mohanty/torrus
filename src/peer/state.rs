@@ -21,8 +21,8 @@ pub enum ConnectionStatus {
 }
 
 impl PeerState {
-    pub fn new() -> Self {
-        let bitfield = Bitfield::new();
+    pub fn new(bitfield_len: usize) -> Self {
+        let bitfield = Bitfield::with_capacity(bitfield_len);
         Self {
             peer_choking: true,
             peer_interested: false,

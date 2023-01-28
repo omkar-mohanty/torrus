@@ -79,6 +79,7 @@ impl Tracker {
             .downloaded(0)
             .uploaded(0)
             .left(left)
+            .num_want(1)
             .event(String::from_str("started").unwrap())
             .build();
 

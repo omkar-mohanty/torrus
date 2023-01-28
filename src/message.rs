@@ -55,7 +55,7 @@ impl Display for Message {
             Interested => f.write_str("Interested"),
             NotInterested => f.write_str("Not Interested"),
             Have(index) => f.write_fmt(format_args!("Have Index : {}", index)),
-            Bitfield(bitfield) => f.write_fmt(format_args!("Have Bitfield : {}", bitfield)),
+            Bitfield(bitfield) => f.write_fmt(format_args!("Bitfield : {}", bitfield.len())),
             Request {
                 index,
                 begin,

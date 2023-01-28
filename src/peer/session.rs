@@ -1,6 +1,8 @@
 use super::PeerCodec;
+use crate::block::Block;
 use crate::message::Message;
 use crate::Result;
+use crate::TorrusError;
 use crate::{Receiver, Sender};
 use futures::{SinkExt, StreamExt};
 use tokio::{net::TcpStream, sync::mpsc};
@@ -8,6 +10,8 @@ use tokio_util::codec::Framed;
 
 /// Responsible for passing `Message` between client and peer.
 pub struct PeerSession {
+    /// Request queue to improve performance
+    req_queue: Vec<Block>,
     /// Receiver for commands from the client
     msg_rcv: Receiver,
     /// Sender for Messages
@@ -22,7 +26,13 @@ impl PeerSession {
     pub fn new(msg_send: Sender) -> (Sender, Self) {
         let (sender, msg_rcv) = mpsc::unbounded_channel::<Message>();
 
-        let peer_session = PeerSession { msg_send, msg_rcv };
+        let req_queue = Vec::new();
+
+        let peer_session = PeerSession {
+            msg_send,
+            msg_rcv,
+            req_queue,
+        };
 
         (sender, peer_session)
     }
@@ -40,21 +50,34 @@ impl PeerSession {
 
         loop {
             tokio::select! {
-                cmd = msg_rcv.recv() => {
-                    if let Some(msg) = cmd {
-                        sink.send(msg).await?;
-                    }
-                }
+            cmd = msg_rcv.recv() => {
+                if let Some(msg) = cmd {
+                    match msg {
+                        Message::Piece(block) => {
+                            if self.req_queue.len() >=10 {
+                                let req_block = self.req_queue.pop().unwrap();
 
-                msg = stream.next() => {
-                    if let Some(msg) = msg {
-                        let peer_msg = msg?;
+                                sink.send(Message::Piece(req_block)).await?;
 
-                        if let Err(_) = msg_send.send(peer_msg) {
-                            println!("Could not send message to client");
-                            todo!()
+                                self.req_queue.push(block);
+                            }
+                        }
+                        _ => {
+                            sink.send(msg).await?;
                         }
                     }
+                }
+            }
+
+            msg = stream.next() => {
+                if let Some(msg) = msg {
+                    let peer_msg = msg?;
+
+                    if let Err(err) = msg_send.send(peer_msg) {
+                        log::error!("Error:\t{err}");
+                        return Err(TorrusError::new(&err.to_string()));
+                    }
+                }
                 }
             }
         }

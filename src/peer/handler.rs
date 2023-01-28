@@ -30,8 +30,6 @@ struct PeerHandle {
     pub peer_context: Arc<PeerContext>,
     /// Receiver for events from the peer
     receiver_join_handle: JoinHandle<Result<()>>,
-    /// Handle for PeerSession task
-    peer_session_handle: JoinHandle<()>,
 }
 
 impl Peer for PeerHandle {
@@ -45,7 +43,7 @@ impl Peer for PeerHandle {
 
     fn close(self) {
         self.receiver_join_handle.abort();
-        self.peer_session_handle.abort();
+        self.peer_context.close_session();
     }
 }
 
@@ -56,9 +54,7 @@ impl PeerHandle {
 
         let (sender, mut peer_session) = PeerSession::new(msg_send);
 
-        let peer_context = PeerContext::new(peer_id, sender);
-
-        let peer_context = Arc::new(peer_context);
+        let bitfield_len = context.metainfo.total_pieces();
 
         let peer_session_handle = tokio::spawn(async move {
             if let Err(_) = peer_session.start(stream).await {
@@ -66,17 +62,18 @@ impl PeerHandle {
             }
         });
 
+        let peer_context = PeerContext::new(peer_id, sender, bitfield_len, peer_session_handle);
+
+        let peer_context = Arc::new(peer_context);
         let task_peer_context = Arc::clone(&peer_context);
 
         let receiver_join_handle = tokio::spawn(async move {
             handle_receiver(receiver, context, Arc::clone(&task_peer_context)).await?;
             Ok::<(), crate::error::TorrusError>(())
         });
-
         Self {
             peer_context,
             receiver_join_handle,
-            peer_session_handle,
         }
     }
 
@@ -97,6 +94,7 @@ async fn handle_receiver(
 
     loop {
         if let Some(msg) = receiver.recv().await {
+            log::debug!("Received Message {}", msg);
             match msg {
                 KeepAlive => {
                     if let Err(err) =
@@ -135,7 +133,7 @@ async fn handle_receiver(
                         log::error!("Error:\t{}", err)
                     }
                 }
-                Port(_) =>{
+                Port(_) => {
                     log::info!("Port Implementation still pending")
                 }
                 Bitfield(bitfield) => match context.match_bitfield_len(bitfield.len()) {
@@ -145,6 +143,7 @@ async fn handle_receiver(
                                 log::error!("Error:\t{}", err)
                             }
                         } else {
+                            peer_context.close_session();
                             return Err(TorrusError::new("Bitfield length did not match"));
                         }
                     }
@@ -152,7 +151,6 @@ async fn handle_receiver(
                         log::error!("Error:\t{}", err)
                     }
                 },
-
                 _ => {
                     unimplemented!("Implement all branches")
                 }
