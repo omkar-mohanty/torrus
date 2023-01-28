@@ -1,6 +1,7 @@
 mod handler;
 pub mod message_codec;
-mod session;
+mod peer_context;
+pub mod session;
 mod state;
 
 use message_codec::PeerCodec;
@@ -14,5 +15,6 @@ pub enum Direction {
     Outbound,
 }
 
-pub use handler::{PeerEvent, PeerHandle};
-pub use session::PeerSession;
+pub use handler::new_peer;
+
+pub type Peer = Box<dyn self::handler::Peer>;
