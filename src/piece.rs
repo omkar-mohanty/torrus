@@ -7,7 +7,11 @@ use std::{
 use sha1::{Digest, Sha1};
 
 use crate::{
-    block::Block, error::TorrusError, metainfo::Metainfo, storage::TorrentFile, utils::RangeExt,
+    block::{Block, BlockInfo, BLOCK_SIZE},
+    error::TorrusError,
+    metainfo::Metainfo,
+    storage::TorrentFile,
+    utils::RangeExt,
     Bitfield, Hash, PieceIndex, Result,
 };
 
@@ -143,6 +147,15 @@ impl Piece {
     pub fn hash(&self) -> &Hash {
         &self.piece_info.hash
     }
+
+    pub fn request_block(&self) -> Option<BlockInfo> {
+        for (_, block) in self.blocks.iter() {
+            if block.len() < (BLOCK_SIZE as usize) {
+                return Some(block.block_info);
+            }
+        }
+        None
+    }
 }
 
 impl PieceHandler {
@@ -205,16 +218,18 @@ impl PieceHandler {
 
     /// For now the [`PieceHandler`] picks a [`Piece`] which is pending later a rarest first
     /// algorithm should be implemented.
-    pub fn pick_piece(&self) -> Option<PieceIndex> {
+    pub fn pick_piece(&self) -> Option<BlockInfo> {
+        let mut piece = &self.pieces[0];
+
         for index in 0..self.bitfield.len() {
-            let piece = &self.pieces[index];
+            piece = &self.pieces[index];
 
             if !self.bitfield[index] && piece.frequency() > 0 && piece.pending() {
-                return Some(index);
+                break;
             }
         }
 
-        return None;
+        piece.request_block()
     }
 
     /// Insert a [`Block`] into the coresponding [`Piece`].

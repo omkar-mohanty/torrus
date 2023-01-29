@@ -67,6 +67,12 @@ impl From<ParseError> for TorrusError {
     }
 }
 
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TorrusError {
+    fn from(value: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Self::new(&value.to_string())
+    }
+}
+
 unsafe impl Send for TorrusError {}
 
 #[cfg(test)]

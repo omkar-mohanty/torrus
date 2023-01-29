@@ -52,7 +52,7 @@ impl Deref for Block {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BlockInfo {
     /// Index of the piece within the bitfield.
     pub piece_index: PieceIndex,
