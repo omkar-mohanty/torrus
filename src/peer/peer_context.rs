@@ -1,14 +1,14 @@
-use tokio::task::JoinHandle;
-
-use super::state::{ConnectionStatus, PeerState};
+use super::state::{ConnectionStatus, Intrest, State};
+use crate::peer::state::ChokeStatus;
 use crate::{Bitfield, PeerId, PieceIndex, Result, Sender, TorrusError};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tokio::task::JoinHandle;
 
 /// Holds all information about the Peer.
 /// Accessed by ['Torrent'] and [`PeerHandle`] in different threads.
 pub struct PeerContext {
     /// Information about the connection state and [`Choked`]/[`Unchoked`] information
-    peer_state: RwLock<PeerState>,
+    state: RwLock<State>,
     /// 20 byte PeerId
     pub peer_id: PeerId,
     /// Channel to send messages to Peer
@@ -25,18 +25,42 @@ impl PeerContext {
         bitfield_len: usize,
         session_join_handle: JoinHandle<()>,
     ) -> Self {
-        let peer_state = RwLock::new(PeerState::new(bitfield_len));
+        let state = RwLock::new(State::new(bitfield_len));
         Self {
-            peer_state,
+            state,
             peer_id,
             sender,
             session_join_handle,
         }
     }
 
+    pub fn peer_interested(&self) -> Result<Intrest> {
+        let state = self.get_state_read()?;
+
+        Ok(state.peer_state.intrest)
+    }
+
+    pub fn peer_chocking(&self) -> Result<ChokeStatus> {
+        let state = self.get_state_read()?;
+
+        Ok(state.peer_state.choke)
+    }
+
+    pub fn client_interested(&self) -> Result<Intrest> {
+        let state = self.get_state_read()?;
+
+        Ok(state.client_state.intrest)
+    }
+
+    pub fn client_choked(&self) -> Result<ChokeStatus> {
+        let state = self.get_state_read()?;
+
+        Ok(state.client_state.choke)
+    }
+
     /// Get write lock to [`PeerState`]
-    fn get_state_write(&self) -> Result<RwLockWriteGuard<PeerState>> {
-        let peer_state = match self.peer_state.write() {
+    fn get_state_write(&self) -> Result<RwLockWriteGuard<State>> {
+        let peer_state = match self.state.write() {
             Ok(state) => state,
             Err(err) => {
                 log::error!("Error:\t{}", err);
@@ -47,8 +71,8 @@ impl PeerContext {
     }
 
     /// Get reader lock to [`PeerState`]
-    fn get_state_read(&self) -> Result<RwLockReadGuard<PeerState>> {
-        let peer_state = match self.peer_state.read() {
+    fn get_state_read(&self) -> Result<RwLockReadGuard<State>> {
+        let peer_state = match self.state.read() {
             Ok(state) => state,
             Err(err) => {
                 log::error!("Error:\t{}", err);
@@ -58,18 +82,18 @@ impl PeerContext {
         Ok(peer_state)
     }
 
-    pub fn set_peer_choking(&self, choking: bool) -> Result<()> {
+    pub fn set_peer_choking(&self, choking: ChokeStatus) -> Result<()> {
         let mut state = self.get_state_write()?;
 
-        state.set_peer_choking(choking);
+        state.peer_state.choke = choking;
 
         Ok(())
     }
 
-    pub fn set_peer_interested(&self, interested: bool) -> Result<()> {
+    pub fn set_peer_interested(&self, interested: Intrest) -> Result<()> {
         let mut state = self.get_state_write()?;
 
-        state.set_peer_interested(interested);
+        state.peer_state.intrest = interested;
 
         Ok(())
     }
@@ -85,8 +109,12 @@ impl PeerContext {
     pub fn set_index(&self, index: PieceIndex) -> Result<()> {
         let mut state = self.get_state_write()?;
 
-        if index >= state.bitfield.len() {
-            let msg = format!("Cannot set index {} for bitfield of length {}", index, state.bitfield.len());
+        if index >= state.peer_state.bitfield.len() {
+            let msg = format!(
+                "Cannot set index {} for bitfield of length {}",
+                index,
+                state.peer_state.bitfield.len()
+            );
             return Err(TorrusError::new(&msg));
         }
 
@@ -98,12 +126,24 @@ impl PeerContext {
     pub fn set_connection_status(&self, connection_status: ConnectionStatus) -> Result<()> {
         let mut state = self.get_state_write()?;
 
-        state.set_connection_status(connection_status);
+        state.peer_state.connection_status = connection_status;
 
         Ok(())
     }
 
     pub fn close_session(&self) {
         self.session_join_handle.abort();
+    }
+
+    pub fn client_download(&self) -> Result<bool> {
+        let state = self.get_state_read()?;
+
+        if let (ChokeStatus::Unchoked, Intrest::Interested) =
+            (state.peer_state.choke, state.client_state.intrest)
+        {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
