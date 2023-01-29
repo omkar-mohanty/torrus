@@ -68,18 +68,23 @@ impl Tracker {
         Ok(response)
     }
 
-    pub async fn announce(&mut self, peer_id: PeerId) -> crate::Result<TrackerResponse> {
+    pub async fn announce(
+        &mut self,
+        peer_id: PeerId,
+        num_want: i32,
+        port: u16,
+    ) -> crate::Result<TrackerResponse> {
         let info_hash = self.torrent.hash();
         let left = self.torrent.length();
 
         let announce_request = TrackerRequestBuilder::new()
             .info_hash(info_hash.to_vec())
             .peer_id(peer_id.to_vec())
-            .with_port(6881)
+            .with_port(port)
             .downloaded(0)
             .uploaded(0)
             .left(left)
-            .num_want(1)
+            .num_want(num_want)
             .event(String::from_str("started").unwrap())
             .build();
 
