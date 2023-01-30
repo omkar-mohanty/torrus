@@ -94,7 +94,7 @@ impl Tracker {
     }
 
     pub fn from_url_string(url: &str, metainfo: Arc<Context>) -> crate::Result<Self> {
-        let url = Url::parse(&url)?;
+        let url = Url::parse(url)?;
 
         Ok(Self::new(url, metainfo))
     }
@@ -197,7 +197,7 @@ where
         where
             E: serde::de::Error,
         {
-            IpAddr::from_str(v).map_err(|e| E::custom(format!("Could not parse ip: {}", e)))
+            IpAddr::from_str(v).map_err(|e| E::custom(format!("Could not parse ip: {e}")))
         }
         fn visit_bytes<E>(self, v: &[u8]) -> std::result::Result<Self::Value, E>
         where

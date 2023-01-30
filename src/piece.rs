@@ -95,16 +95,14 @@ impl Piece {
         let entry = self.blocks.entry(index);
 
         use Entry::*;
-        let res = match entry {
+        match entry {
             Vacant(_) => {
                 self.blocks.insert(index, block);
                 Ok(())
             }
 
             Occupied(_) => Err(TorrusError::new("Duplicate Block")),
-        };
-
-        res
+        }
     }
 
     /// Iterate over all the files for which the [`Piece`] overlaps with, find all the [`Block`]
@@ -118,8 +116,8 @@ impl Piece {
                 let mut file = file.write().unwrap();
 
                 self.blocks
-                    .iter()
-                    .map(|(_, block)| -> Result<()> {
+                    .values()
+                    .map(|block| -> Result<()> {
                         let byte_range = block.byte_range();
 
                         let file_byte_range = file.byte_range();
@@ -218,7 +216,7 @@ impl PieceHandler {
 
     /// For now the [`PieceHandler`] picks a [`Piece`] which is pending later a rarest first
     /// algorithm should be implemented.
-    pub fn pick_piece(&self) -> Option<BlockInfo> {
+    pub fn pick_piece(&self) -> BlockInfo {
         let mut piece = &self.pieces[0];
 
         for index in 0..self.bitfield.len() {
@@ -229,7 +227,15 @@ impl PieceHandler {
             }
         }
 
-        piece.request_block()
+        log::debug!("\tpick_piece:\tpicked{}", piece.piece_info.index);
+
+        match piece.request_block() {
+            Some(block_info) => block_info,
+            None => BlockInfo {
+                piece_index: piece.piece_info.index,
+                begin: 0,
+            },
+        }
     }
 
     /// Insert a [`Block`] into the coresponding [`Piece`].

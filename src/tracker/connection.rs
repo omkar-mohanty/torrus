@@ -123,8 +123,10 @@ impl Encoder<UdpRequest> for UdpMessageCodec {
 
         if action == 0 {
             dst.put_u64(protocol_id);
+            log::debug!("\tPut Protocol ID:");
         } else if let Some(connection_id) = connection_id {
             dst.put_u64(connection_id);
+            log::debug!("\tPut connection ID");
         }
         dst.put_u32(action);
         dst.put_u32(transaction_id);
@@ -216,7 +218,7 @@ impl Decoder for UdpMessageCodec {
                 }
                 3 => {
                     let _transaction_id = src.get_u32();
-                    let err_message = String::from_utf8_lossy(&src).to_string();
+                    let err_message = String::from_utf8_lossy(src).to_string();
 
                     return Err(TorrusError::new(&err_message));
                 }
@@ -351,7 +353,7 @@ impl UdpSession {
 
         let mut result = socket.next().await;
 
-        while let None = result {
+        while result.is_none() {
             result = socket.next().await;
         }
 
@@ -364,7 +366,7 @@ impl UdpSession {
     async fn send_message(&self, tracker_request: TrackerRequest) -> Result<UdpResponse> {
         let socket_addr = self.url.socket_addrs(|| None)?;
 
-        for addr in socket_addr.iter() {
+        if let Some(addr) = socket_addr.iter().next() {
             let request = UdpRequest::new()
                 .with_action(1)
                 .with_connection_id(self.connection_id.unwrap())
@@ -395,12 +397,12 @@ where
         let response = match self.send_message(message).await {
             Ok(res) => res,
             Err(err) => {
-                log::error!("\tsend_message\t{}", err);
+                log::error!("\tsend_message:\t{}", err);
                 return Err(err);
             }
         };
 
-        if let None = response.tracker_response {
+        if response.tracker_response.is_none() {
             return Err(TorrusError::new("Could not get tracker response"));
         };
 
@@ -463,7 +465,7 @@ where
 
                 Ok(Bytes(res))
             }
-            None => return Err(TorrusError::new("Received empty Body")),
+            None => Err(TorrusError::new("Received empty Body")),
         }
     }
 }

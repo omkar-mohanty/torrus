@@ -110,11 +110,11 @@ impl Metainfo {
 
     /// Get TorrentFile metainfo
     pub fn get_files(&self) -> Vec<FileInfo> {
-        let files = if let Some(files) = &self.info.files {
+        if let Some(files) = &self.info.files {
             let mut offset = 0;
 
             files
-                .into_iter()
+                .iter()
                 .map(|file| {
                     let mut path: PathBuf = PathBuf::new();
 
@@ -130,7 +130,7 @@ impl Metainfo {
 
                     FileInfo {
                         path,
-                        offset: offset.clone(),
+                        offset,
                         length: file.length,
                     }
                 })
@@ -148,9 +148,7 @@ impl Metainfo {
                 offset: 0,
                 length: self.info.length,
             }]
-        };
-
-        files
+        }
     }
 
     pub fn hash(&self) -> Result<Hash> {
@@ -170,7 +168,7 @@ pub fn render_torrent(torrent: &Metainfo) {
     for files in torrent.info.files.iter() {
         for file in files.iter() {
             for path in file.path.iter() {
-                println!("File\t {}", path);
+                println!("File\t {path}");
             }
         }
     }

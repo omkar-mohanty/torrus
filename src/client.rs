@@ -71,10 +71,10 @@ impl Client {
 
         let (sender, receiver) = unbounded_channel();
 
-        let mut torrent = Torrent::from_metainfo(metainfo, self.client_id, receiver)?;
+        let mut torrent = Torrent::from_metainfo(metainfo, self.client_id)?;
 
         let join_handle = tokio::spawn(async move {
-            torrent.start().await?;
+            torrent.start(receiver).await?;
 
             Ok::<(), TorrusError>(())
         });
@@ -114,6 +114,6 @@ impl Client {
     pub fn send_command(&self, torrent_id: TorrentId, command: TorrentCommand) -> Result<()> {
         let torrent = &self.torrents.get(&torrent_id).unwrap();
 
-        Ok(torrent.send(command)?)
+        torrent.send(command)
     }
 }

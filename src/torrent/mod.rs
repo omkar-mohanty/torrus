@@ -136,15 +136,14 @@ pub struct Torrent {
     client_id: PeerId,
     /// hash map of peerID and the coresponding peer handle
     peers: HashMap<PeerId, Peer>,
-    /// Channel to receive commands from client,
-    cmd_rcv: TorrentCommandReceiver,
+    /// Peer Discovery
+    discovery: Discovery,
 }
 
 impl Torrent {
     pub fn from_metainfo(
         metainfo: Metainfo,
         client_id: PeerId,
-        cmd_rcv: TorrentCommandReceiver,
     ) -> Result<Self> {
         let bitfield = crate::Bitfield::with_capacity(metainfo.total_pieces());
 
@@ -166,11 +165,15 @@ impl Torrent {
 
         let peers = HashMap::new();
 
+        let trackers = Self::get_trackers(&context)?;
+
+        let discovery = Discovery::new(trackers, client_id);
+
         Ok(Self {
             context,
             client_id,
             peers,
-            cmd_rcv,
+            discovery,
         })
     }
 
@@ -194,6 +197,22 @@ impl Torrent {
             Err(_) => Err(TorrusError::new(
                 "Remote Peer could not send handshake in time",
             )),
+        }
+    }
+
+    async fn get_peers(&mut self, port: u16) -> Option<Vec<PeerAddr>> {
+        if self.peers.len() < 30 {
+            let peers = self
+                .discovery
+                .get_peers(30 - self.peers.len() as i32, port)
+                .await;
+
+            match peers {
+                Ok(peers) => Some(peers),
+                Err(_) => None,
+            }
+        } else {
+            None
         }
     }
 
@@ -235,16 +254,16 @@ impl Torrent {
         }
     }
 
-    fn get_trackers(&self) -> Result<Vec<Tracker>> {
-        let trackers = if let Some(url) = &self.context.metainfo.announce {
-            let tracker = Tracker::from_url_string(url, Arc::clone(&self.context))?;
+    fn get_trackers(context: &Arc<Context>) -> Result<Vec<Tracker>> {
+        let trackers = if let Some(url) = &context.metainfo.announce {
+            let tracker = Tracker::from_url_string(&url, Arc::clone(context))?;
 
             vec![tracker]
-        } else if let Some(al) = &self.context.metainfo.announce_list {
+        } else if let Some(al) = &context.metainfo.announce_list {
             let mut trackers = Vec::new();
 
             for a in al {
-                let tracker = Tracker::from_url_string(&a[0], Arc::clone(&self.context))?;
+                let tracker = Tracker::from_url_string(&a[0], Arc::clone(context))?;
                 trackers.push(tracker)
             }
 
@@ -257,65 +276,32 @@ impl Torrent {
     }
 
     /// Start Bittorrent `Handshake` protocol with all the peers and then start the wire protocol.
-    pub async fn start(&mut self) -> Result<()> {
-        let addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-
-        let port = addr.port();
-
-        let trackers = self.get_trackers()?;
-
-        let discovery = Discovery::new(trackers, self.client_id);
-
-        let fut = Box::pin(futures::stream::unfold(
-            (0, discovery),
-            |state| async move {
-                let (state, mut discovery) = state;
-
-                if state < 30 {
-                    let next_state = 30 - state;
-
-                    let peers = match discovery.get_peers(next_state, port).await {
-                        Ok(peers) => peers,
-                        Err(_) => vec![],
-                    };
-
-                    let next_state = (30 - peers.len()) as i32;
-
-                    Some((peers, (next_state, discovery)))
-                } else {
-                    None
-                }
-            },
-        ));
-
-        let listner = TcpListener::bind(addr).await?;
-
-        self.handle_events(listner, fut).await?;
+    pub async fn start(&mut self,rx: TorrentCommandReceiver) -> Result<()> {
+        
+        self.handle_events(rx).await?;
 
         Ok(())
     }
 
-    async fn handle_events(
-        &mut self,
-        listner: TcpListener,
-        mut peer_stream: impl Stream<Item = Vec<PeerAddr>> + Unpin,
-    ) -> Result<()> {
+    async fn handle_events(&mut self, mut rx: TorrentCommandReceiver) -> Result<()> {
+        let addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+
+        let port = addr.port();
+
+        let listner = TcpListener::bind(addr).await?;
+
         loop {
             tokio::select! {
-             cmd = self.cmd_rcv.recv() => {
-                    if let Some(command) = cmd {
-                    self.handle_command(command);
-                    }
-                }
+             Some(cmd) = rx.recv() => {
+                self.handle_command(cmd);
+             }
              res = listner.accept() => {
                 if let Ok((stream, _)) = res {
                        let _ =  self.insert_new_peer_stream(stream);
                     }
                 }
-             peers = peer_stream.next() => {
-                    if let Some(peers) = peers {
-                        self.get_peer_streams(peers).await;
-                    }
+             Some(peers) = self.get_peers(port) => {
+                     self.get_peer_streams(peers).await;
                 }
             }
         }
@@ -367,7 +353,7 @@ async fn connect_to_peer(
 
     let fut = framed.send(handshake);
 
-    if let Err(_) = timeout(timeout_dur, fut).await {
+    if timeout(timeout_dur, fut).await.is_err() {
         return Err(TorrusError::new("Could not send handshake in 10 seconds"));
     }
 
@@ -398,7 +384,6 @@ async fn handshake_timeout(
 mod tests {
     use super::*;
     use crate::{new_peer_id, Result};
-    use tokio::sync::mpsc::unbounded_channel;
 
     const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
 
@@ -407,8 +392,7 @@ mod tests {
         let file = std::fs::read(FILEPATH)?;
         let metainfo = Metainfo::from_bytes(&file).unwrap();
         let peer_id = new_peer_id();
-        let (_, receiver) = unbounded_channel();
-        let _ = Torrent::from_metainfo(metainfo, peer_id, receiver);
+        let _ = Torrent::from_metainfo(metainfo, peer_id);
         Ok(())
     }
 }

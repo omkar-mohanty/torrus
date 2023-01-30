@@ -54,15 +54,14 @@ impl Display for Message {
             Unchoke => f.write_str("Unchoke"),
             Interested => f.write_str("Interested"),
             NotInterested => f.write_str("Not Interested"),
-            Have(index) => f.write_fmt(format_args!("Have Index : {}", index)),
+            Have(index) => f.write_fmt(format_args!("Have Index : {index}")),
             Bitfield(bitfield) => f.write_fmt(format_args!("Bitfield : {}", bitfield.len())),
             Request {
                 index,
                 begin,
                 length,
             } => f.write_fmt(format_args!(
-                "Request Index : {}, Begin : {}, Length : {}",
-                index, begin, length
+                "Request Index : {index}, Begin : {begin}, Length : {length}"
             )),
             Piece(block) => f.write_fmt(format_args!(
                 "Piece index : {}, begin : {}",
@@ -73,10 +72,9 @@ impl Display for Message {
                 begin,
                 length,
             } => f.write_fmt(format_args!(
-                "Request Index : {}, Begin : {}, Length : {}",
-                index, begin, length
+                "Request Index : {index}, Begin : {begin}, Length : {length}"
             )),
-            Port(port) => f.write_fmt(format_args!("Port : {}", port)),
+            Port(port) => f.write_fmt(format_args!("Port : {port}")),
         }
     }
 }
