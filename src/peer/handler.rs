@@ -1,5 +1,5 @@
 use super::peer_context::PeerContext;
-use crate::block::{BlockInfo, BLOCK_SIZE};
+use crate::block::BLOCK_SIZE;
 use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::session::PeerSession;
@@ -9,11 +9,11 @@ use crate::{PeerId, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tokio::time::sleep;
 use tokio::{net::TcpStream, sync::mpsc::unbounded_channel};
 
 /// Abstracts over all [`Peer`] operations
-pub trait Peer: Send {
+pub trait Peer: Send + Sync {
     /// Send message to the remote Peer
     fn send(&self, msg: Message) -> Result<()>;
     /// Close all communication with remote Peer
@@ -31,25 +31,22 @@ type Result<T> = std::result::Result<T, crate::error::TorrusError>;
 struct PeerHandle {
     /// Context shared by [`Torrent`] and [`PeerHandle`]
     pub peer_context: Arc<PeerContext>,
-    /// Receiver for events from the peer
-    receiver_join_handle: JoinHandle<Result<()>>,
-    /// Sender to send messages to the remote Peer
-    sender_join_handle: JoinHandle<Result<()>>,
+    /// Sender and receiver join handle
+    pub join_handle: JoinHandle<Result<()>>,
 }
 
 impl Peer for PeerHandle {
     fn send(&self, msg: Message) -> Result<()> {
         if let Err(err) = self.peer_context.sender.send(msg) {
-            return Err(TorrusError::new(&err.to_string()));
+            Err(TorrusError::new(&err.to_string()))
         } else {
             Ok(())
         }
     }
 
     fn close(self) {
-        self.receiver_join_handle.abort();
-        self.sender_join_handle.abort();
         self.peer_context.close_session();
+        self.join_handle.abort();
     }
 }
 
@@ -63,7 +60,7 @@ impl PeerHandle {
         let bitfield_len = context.metainfo.total_pieces();
 
         let peer_session_handle = tokio::spawn(async move {
-            if let Err(_) = peer_session.start(stream).await {
+            if (peer_session.start(stream).await).is_err() {
                 return;
             }
         });
@@ -75,30 +72,29 @@ impl PeerHandle {
 
         let receiver_context = Arc::clone(&context);
 
-        let receiver_join_handle = tokio::spawn(async move {
-            handle_receiver(receiver, receiver_context, Arc::clone(&task_peer_context)).await?;
-            Ok::<(), crate::error::TorrusError>(())
-        });
+        let receiver_join_handle =
+            handle_receiver(receiver, receiver_context, Arc::clone(&task_peer_context));
 
         let sender_context = Arc::clone(&context);
 
         let sender_peer_context = Arc::clone(&peer_context);
 
-        let sender_join_handle = tokio::spawn(async move {
-            message_sender(sender_context, sender_peer_context).await?;
+        let sender_join_handle = message_sender(sender_context, sender_peer_context);
 
-            Ok::<(), crate::error::TorrusError>(())
+        let handle = tokio::spawn(async move {
+            let (res1, res2) = futures::join!(receiver_join_handle, sender_join_handle);
+
+            res1?;
+
+            res2?;
+
+            Ok::<(), TorrusError>(())
         });
 
         Self {
             peer_context,
-            receiver_join_handle,
-            sender_join_handle,
+            join_handle: handle,
         }
-    }
-
-    pub fn is_finished(&self) -> bool {
-        self.receiver_join_handle.is_finished()
     }
 }
 
@@ -108,46 +104,56 @@ impl PeerHandle {
 async fn message_sender(context: Arc<Context>, peer_context: Arc<PeerContext>) -> Result<()> {
     peer_context.sender.send(Message::Interested)?;
 
+    while peer_context
+        .set_client_interest(Intrest::Interested)
+        .is_err()
+    {}
+
     log::info!("\tmessage_sender:\tsend message Interested");
 
+    let (sx, mut rx) = unbounded_channel();
+
+    let selector_context = Arc::clone(&context);
+
+    let selector_peer_context = Arc::clone(&peer_context);
+
+    tokio::spawn(async move {
+        let res = select_message(selector_context, selector_peer_context).await;
+
+        let _ = sx.send(res);
+    });
+
     loop {
-        let fut = select_message(&context, &peer_context);
+        let timeout_dur = Duration::from_secs(60);
 
-        let timeout_dur = Duration::from_secs(120);
-
-        match timeout(timeout_dur, fut).await {
-            Ok(msg) => {
-                let msg = msg?;
-
-                log::debug!("\tclient_side:\tSent {} message", msg);
-
-                peer_context.sender.send(msg)?;
-            }
-
-            Err(_) => {
-                log::debug!(
-                    "\tclient_side:\tselect_message did not select message sending `KeepAlive`"
-                );
-
+        tokio::select! {
+             _ = sleep(timeout_dur) => {
                 peer_context.sender.send(Message::KeepAlive)?;
-            }
+
+                log::debug!("\tmessage_sender:\tsend `KeepAlive` message");
+             }
+
+            Some(msg) = rx.recv() => {
+                    let msg = msg?;
+
+                    log::debug!("\tmessage_sender:\tsending message{}",msg);
+
+                    peer_context.sender.send(msg)?;
+             }
         }
     }
 }
 
 /// If the client can download from remote Peer then select a [`Message`] to send to the remote
 /// Peer.
-async fn select_message(
-    context: &Arc<Context>,
-    peer_context: &Arc<PeerContext>,
-) -> Result<Message> {
+async fn select_message(context: Arc<Context>, peer_context: Arc<PeerContext>) -> Result<Message> {
     log::debug!("\tselect_message:\tSelecting Message");
 
     loop {
         if let Ok(val) = peer_context.client_download() {
             if val {
                 if let Ok(handler) = context.piece_handler.read() {
-                    let block_info = handler.pick_piece().unwrap();
+                    let block_info = handler.pick_piece();
 
                     return Ok(Message::Request {
                         index: block_info.piece_index,

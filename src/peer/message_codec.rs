@@ -125,7 +125,7 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u32((9 + block.data.len()) as u32);
                 dst.put_u8(MessageID::Piece as u8);
                 dst.put_u32(block.block_info.piece_index as u32);
-                dst.put_u32(block.block_info.begin as u32);
+                dst.put_u32(block.block_info.begin);
                 dst.extend_from_slice(&block);
             }
             Cancel {

@@ -146,4 +146,12 @@ impl PeerContext {
             Ok(false)
         }
     }
+
+    pub fn set_client_interest(&self, interest: Intrest) -> Result<()> {
+        let mut state = self.get_state_write()?;
+
+        state.client_state.intrest = interest;
+
+        Ok(())
+    }
 }
