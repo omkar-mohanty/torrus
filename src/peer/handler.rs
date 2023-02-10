@@ -1,5 +1,4 @@
 use super::peer_context::PeerContext;
-use crate::block::BLOCK_SIZE;
 use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::session::PeerSession;
@@ -152,15 +151,7 @@ async fn select_message(context: Arc<Context>, peer_context: Arc<PeerContext>) -
     loop {
         if let Ok(val) = peer_context.client_download() {
             if val {
-                if let Ok(handler) = context.piece_handler.read() {
-                    let block_info = handler.pick_piece();
-
-                    return Ok(Message::Request {
-                        index: block_info.piece_index,
-                        begin: block_info.begin,
-                        length: BLOCK_SIZE,
-                    });
-                }
+                todo!("Implement select_message");
             }
         }
     }

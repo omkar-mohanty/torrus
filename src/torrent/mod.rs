@@ -1,8 +1,7 @@
-use futures::Stream;
 use futures::{future::join_all, FutureExt, SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
@@ -64,7 +63,7 @@ impl Discovery {
 
 pub struct Context {
     /// Handles all IO operations
-    pub piece_handler: RwLock<PieceHandler>,
+    pub piece_handler: Mutex<PieceHandler>,
     /// 20 byte infohash of the torrent
     pub info_hash: Hash,
     /// 20 byte client ID
@@ -75,7 +74,7 @@ pub struct Context {
 
 impl Context {
     pub fn new(piece_handler: PieceHandler, client_id: PeerId, metainfo: Metainfo) -> Result<Self> {
-        let piece_handler = RwLock::new(piece_handler);
+        let piece_handler = Mutex::new(piece_handler);
 
         let info_hash = metainfo.hash()?;
 
@@ -95,36 +94,24 @@ impl Context {
         self.metainfo.info.length
     }
 
-    fn get_read_handle(&self) -> Result<RwLockReadGuard<PieceHandler>> {
-        match self.piece_handler.read() {
-            Ok(handler) => Ok(handler),
-            Err(err) => {
-                log::error!("\tget_read_handle : Error:\t{}", err);
-                Err(TorrusError::new(&err.to_string()))
-            }
-        }
-    }
+    fn get_mutex<F, T>(&self, func: F) -> Result<T>
+    where
+        F: FnOnce(MutexGuard<PieceHandler>) -> T,
+    {
+        let handler = self.piece_handler.lock().unwrap();
 
-    fn get_write_handle(&self) -> Result<RwLockWriteGuard<PieceHandler>> {
-        match self.piece_handler.write() {
-            Ok(handler) => Ok(handler),
-            Err(err) => {
-                log::error!("\tget_write_handle : Error:\t{}", err);
-                Err(TorrusError::new(&err.to_string()))
-            }
-        }
+        // Critical section
+        let ret = func(handler);
+
+        Ok(ret)
     }
 
     pub fn match_bitfield_len(&self, len: usize) -> Result<bool> {
-        let handler = self.get_read_handle()?;
-
-        Ok(handler.match_bitfield_len(len))
+        self.get_mutex(|handler| handler.match_bitfield_len(len))
     }
 
     pub fn insert_block(&self, block: Block) -> Result<()> {
-        let mut handler = self.get_write_handle()?;
-
-        Ok(handler.insert_block(block)?)
+        self.get_mutex(|mut handler| handler.insert_block(block))?
     }
 }
 
@@ -141,10 +128,7 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub fn from_metainfo(
-        metainfo: Metainfo,
-        client_id: PeerId,
-    ) -> Result<Self> {
+    pub fn from_metainfo(metainfo: Metainfo, client_id: PeerId) -> Result<Self> {
         let bitfield = crate::Bitfield::with_capacity(metainfo.total_pieces());
 
         let files: RwFiles = metainfo
@@ -276,8 +260,7 @@ impl Torrent {
     }
 
     /// Start Bittorrent `Handshake` protocol with all the peers and then start the wire protocol.
-    pub async fn start(&mut self,rx: TorrentCommandReceiver) -> Result<()> {
-        
+    pub async fn start(&mut self, rx: TorrentCommandReceiver) -> Result<()> {
         self.handle_events(rx).await?;
 
         Ok(())
@@ -312,13 +295,7 @@ impl Torrent {
 
         match command {
             Progress => {
-                let have_count = self.context.piece_handler.read().unwrap().have_count();
-                let miss_count = self.context.piece_handler.read().unwrap().miss_count();
-
-                log::info!(
-                    "\thandle_command Progress:\t{}%",
-                    (have_count / miss_count) * 100
-                );
+                todo!("Implement Progress");
             }
         }
     }
@@ -383,7 +360,7 @@ async fn handshake_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{new_peer_id, Result};
+    use crate::{new_peer_id, Bitfield, Result};
 
     const FILEPATH: &str = "./resources/ubuntu-22.10-desktop-amd64.iso.torrent";
 
@@ -393,6 +370,49 @@ mod tests {
         let metainfo = Metainfo::from_bytes(&file).unwrap();
         let peer_id = new_peer_id();
         let _ = Torrent::from_metainfo(metainfo, peer_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_context() -> Result<()> {
+        let file = std::fs::read(FILEPATH)?;
+        let metainfo = Metainfo::from_bytes(&file).unwrap();
+        let piece_handler = PieceHandler::from_metainfo(&metainfo, Bitfield::new(), vec![]);
+        let client_id = new_peer_id();
+        let context = Context::new(piece_handler, client_id, metainfo)?;
+
+        let val = context.match_bitfield_len(Bitfield::new().len())?;
+
+        assert!(val);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_context_threaded() -> Result<()> {
+        let file = std::fs::read(FILEPATH)?;
+        let metainfo = Metainfo::from_bytes(&file).unwrap();
+        let piece_handler = PieceHandler::from_metainfo(&metainfo, Bitfield::new(), vec![]);
+        let client_id = new_peer_id();
+        let context = Arc::new(Context::new(piece_handler, client_id, metainfo)?);
+
+        let context1 = Arc::clone(&context);
+
+        let context2 = Arc::clone(&context);
+
+        let handle1 = tokio::spawn(async move {
+            context1.insert_block(Block { block_info: crate::block::BlockInfo { piece_index: 0, begin: 0 }, data: vec![] })?;
+            Ok::<(), TorrusError>(())
+        });
+
+        let handle2 = tokio::spawn(async move  {
+            context2.match_bitfield_len(Bitfield::new().len())?;
+            Ok::<(), TorrusError>(())
+        });
+
+        let (res1,res2) = futures::try_join!(handle1,handle2).unwrap();
+
+        res1?;
+        res2?;
         Ok(())
     }
 }
