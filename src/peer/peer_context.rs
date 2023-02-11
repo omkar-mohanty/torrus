@@ -1,14 +1,14 @@
 use super::state::{ConnectionStatus, Intrest, State};
 use crate::peer::state::ChokeStatus;
 use crate::{Bitfield, PeerId, PieceIndex, Result, Sender, TorrusError};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
 
 /// Holds all information about the Peer.
 /// Accessed by ['Torrent'] and [`PeerHandle`] in different threads.
 pub struct PeerContext {
     /// Information about the connection state and [`Choked`]/[`Unchoked`] information
-    state: RwLock<State>,
+    state: Mutex<State>,
     /// 20 byte PeerId
     pub peer_id: PeerId,
     /// Channel to send messages to Peer
@@ -25,7 +25,7 @@ impl PeerContext {
         bitfield_len: usize,
         session_join_handle: JoinHandle<()>,
     ) -> Self {
-        let state = RwLock::new(State::new(bitfield_len));
+        let state = Mutex::new(State::new(bitfield_len));
         Self {
             state,
             peer_id,
@@ -34,124 +34,89 @@ impl PeerContext {
         }
     }
 
-    pub fn peer_interested(&self) -> Result<Intrest> {
-        let state = self.get_state_read()?;
-
-        Ok(state.peer_state.intrest)
+    pub fn peer_interested(&self) -> Intrest {
+        self.get_mutex(|state| state.peer_state.intrest)
     }
 
-    pub fn peer_chocking(&self) -> Result<ChokeStatus> {
-        let state = self.get_state_read()?;
-
-        Ok(state.peer_state.choke)
+    pub fn peer_chocking(&self) -> ChokeStatus {
+        self.get_mutex(|state| state.peer_state.choke)
     }
 
-    pub fn client_interested(&self) -> Result<Intrest> {
-        let state = self.get_state_read()?;
-
-        Ok(state.client_state.intrest)
+    pub fn client_interested(&self) -> Intrest {
+        self.get_mutex(|state| state.client_state.intrest)
     }
 
-    pub fn client_choked(&self) -> Result<ChokeStatus> {
-        let state = self.get_state_read()?;
-
-        Ok(state.client_state.choke)
+    pub fn client_choked(&self) -> ChokeStatus {
+        self.get_mutex(|state| state.client_state.choke)
     }
 
     /// Get write lock to [`PeerState`]
-    fn get_state_write(&self) -> Result<RwLockWriteGuard<State>> {
-        let peer_state = match self.state.write() {
-            Ok(state) => state,
-            Err(err) => {
-                log::error!("Error:\t{}", err);
-                return Err(TorrusError::new(&err.to_string()));
-            }
-        };
-        Ok(peer_state)
+    pub fn get_mutex<F, T>(&self, func: F) -> T
+    where
+        F: FnOnce(MutexGuard<State>) -> T,
+    {
+        let state = self.state.lock().unwrap();
+        func(state)
     }
 
-    /// Get reader lock to [`PeerState`]
-    fn get_state_read(&self) -> Result<RwLockReadGuard<State>> {
-        let peer_state = match self.state.read() {
-            Ok(state) => state,
-            Err(err) => {
-                log::error!("Error:\t{}", err);
-                return Err(TorrusError::new(&err.to_string()));
-            }
-        };
-        Ok(peer_state)
+    pub fn set_peer_choking(&self, choking: ChokeStatus) {
+        self.get_mutex(|mut state| {
+            state.peer_state.choke = choking;
+        })
     }
 
-    pub fn set_peer_choking(&self, choking: ChokeStatus) -> Result<()> {
-        let mut state = self.get_state_write()?;
-
-        state.peer_state.choke = choking;
-
-        Ok(())
+    pub fn set_peer_interested(&self, interested: Intrest) {
+        self.get_mutex(|mut state| {
+            state.peer_state.intrest = interested;
+        })
     }
 
-    pub fn set_peer_interested(&self, interested: Intrest) -> Result<()> {
-        let mut state = self.get_state_write()?;
-
-        state.peer_state.intrest = interested;
-
-        Ok(())
-    }
-
-    pub fn set_bitfield(&self, bitfield: Bitfield) -> Result<()> {
-        let mut state = self.get_state_write()?;
-
-        state.set_bitfield(bitfield);
-
-        Ok(())
+    pub fn set_bitfield(&self, bitfield: Bitfield) {
+        self.get_mutex(|mut state| state.set_bitfield(bitfield))
     }
 
     pub fn set_index(&self, index: PieceIndex) -> Result<()> {
-        let mut state = self.get_state_write()?;
+        self.get_mutex(|mut state| {
+            if index >= state.peer_state.bitfield.len() {
+                let msg = format!(
+                    "Cannot set index {} for bitfield of length {}",
+                    index,
+                    state.peer_state.bitfield.len()
+                );
+                return Err(TorrusError::new(&msg));
+            }
 
-        if index >= state.peer_state.bitfield.len() {
-            let msg = format!(
-                "Cannot set index {} for bitfield of length {}",
-                index,
-                state.peer_state.bitfield.len()
-            );
-            return Err(TorrusError::new(&msg));
-        }
+            state.set_index(index);
 
-        state.set_index(index);
-
-        Ok(())
+            Ok(())
+        })
     }
 
-    pub fn set_connection_status(&self, connection_status: ConnectionStatus) -> Result<()> {
-        let mut state = self.get_state_write()?;
-
-        state.peer_state.connection_status = connection_status;
-
-        Ok(())
+    pub fn set_connection_status(&self, connection_status: ConnectionStatus) {
+        self.get_mutex(|mut state| {
+            state.peer_state.connection_status = connection_status;
+        })
     }
 
     pub fn close_session(&self) {
         self.session_join_handle.abort();
     }
 
-    pub fn client_download(&self) -> Result<bool> {
-        let state = self.get_state_read()?;
-
-        if let (ChokeStatus::Unchoked, Intrest::Interested) =
-            (state.peer_state.choke, state.client_state.intrest)
-        {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+    pub fn client_download(&self) -> bool {
+        self.get_mutex(|state| {
+            if let (ChokeStatus::Unchoked, Intrest::Interested) =
+                (state.peer_state.choke, state.client_state.intrest)
+            {
+                true
+            } else {
+                false
+            }
+        })
     }
 
-    pub fn set_client_interest(&self, interest: Intrest) -> Result<()> {
-        let mut state = self.get_state_write()?;
-
-        state.client_state.intrest = interest;
-
-        Ok(())
+    pub fn set_client_interest(&self, interest: Intrest) {
+        self.get_mutex(|mut state| {
+            state.client_state.intrest = interest;
+        })
     }
 }

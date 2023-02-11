@@ -15,6 +15,4 @@ pub enum Direction {
     Outbound,
 }
 
-pub use handler::new_peer;
-
-pub type Peer = Box<dyn self::handler::Peer>;
+pub use handler::{new_peer, PeerHandle};

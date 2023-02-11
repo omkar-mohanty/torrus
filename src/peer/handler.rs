@@ -8,55 +8,36 @@ use crate::{PeerId, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::Instant;
 use tokio::{net::TcpStream, sync::mpsc::unbounded_channel};
 
-/// Abstracts over all [`Peer`] operations
-pub trait Peer: Send + Sync {
-    /// Send message to the remote Peer
-    fn send(&self, msg: Message) -> Result<()>;
-    /// Close all communication with remote Peer
-    fn close(self);
-}
-
-pub fn new_peer(stream: TcpStream, context: Arc<Context>, peer_id: PeerId) -> super::Peer {
-    Box::new(PeerHandle::new(stream, context, peer_id))
+pub fn new_peer(stream: TcpStream, context: Arc<Context>, peer_id: PeerId) -> PeerHandle {
+    PeerHandle::new(stream, context, peer_id)
 }
 
 type Result<T> = std::result::Result<T, crate::error::TorrusError>;
 
 /// The torrent manager handles peer through this struct.
 /// Communication mostly takes place by sending messages across a channel
-struct PeerHandle {
+pub struct PeerHandle {
     /// Context shared by [`Torrent`] and [`PeerHandle`]
     pub peer_context: Arc<PeerContext>,
     /// Sender and receiver join handle
     pub join_handle: JoinHandle<Result<()>>,
-}
-
-impl Peer for PeerHandle {
-    fn send(&self, msg: Message) -> Result<()> {
-        if let Err(err) = self.peer_context.sender.send(msg) {
-            Err(TorrusError::new(&err.to_string()))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn close(self) {
-        self.peer_context.close_session();
-        self.join_handle.abort();
-    }
+    /// Context of the torrent to which the peer belongs
+    pub torrent_context: Arc<Context>,
+    /// Time of the last send message
+    pub last_message_sent: Option<Instant>,
 }
 
 impl PeerHandle {
     /// Immediately start the session while the handle is being constructed
-    pub fn new(stream: TcpStream, context: Arc<Context>, peer_id: PeerId) -> Self {
+    pub fn new(stream: TcpStream, torrent_context: Arc<Context>, peer_id: PeerId) -> Self {
         let (msg_send, receiver) = unbounded_channel();
 
         let (sender, mut peer_session) = PeerSession::new(msg_send);
 
-        let bitfield_len = context.metainfo.total_pieces();
+        let bitfield_len = torrent_context.metainfo.total_pieces();
 
         let peer_session_handle = tokio::spawn(async move {
             if (peer_session.start(stream).await).is_err() {
@@ -69,91 +50,67 @@ impl PeerHandle {
         let peer_context = Arc::new(peer_context);
         let task_peer_context = Arc::clone(&peer_context);
 
-        let receiver_context = Arc::clone(&context);
+        let receiver_context = Arc::clone(&torrent_context);
 
         let receiver_join_handle =
             handle_receiver(receiver, receiver_context, Arc::clone(&task_peer_context));
 
-        let sender_context = Arc::clone(&context);
-
-        let sender_peer_context = Arc::clone(&peer_context);
-
-        let sender_join_handle = message_sender(sender_context, sender_peer_context);
-
-        let handle = tokio::spawn(async move {
-            let (res1, res2) = futures::join!(receiver_join_handle, sender_join_handle);
-
-            res1?;
-
-            res2?;
+        let join_handle = tokio::spawn(async move {
+            receiver_join_handle.await?;
 
             Ok::<(), TorrusError>(())
         });
 
         Self {
             peer_context,
-            join_handle: handle,
+            join_handle,
+            torrent_context,
+            last_message_sent: None,
         }
     }
-}
 
-/// First send [`Message::Interested`] to the Remote client then send
-/// the selected message to the remote client. If message selector takes more that 120 seconds
-/// that is 2 minutes then send the [`Message::KeepAlive`] message.
-async fn message_sender(context: Arc<Context>, peer_context: Arc<PeerContext>) -> Result<()> {
-    peer_context.sender.send(Message::Interested)?;
+    pub fn select_message(&self) -> Option<Message> {
+        let ret = self.check_duration();
 
-    while peer_context
-        .set_client_interest(Intrest::Interested)
-        .is_err()
-    {}
-
-    log::info!("\tmessage_sender:\tsend message Interested");
-
-    let (sx, mut rx) = unbounded_channel();
-
-    let selector_context = Arc::clone(&context);
-
-    let selector_peer_context = Arc::clone(&peer_context);
-
-    tokio::spawn(async move {
-        let res = select_message(selector_context, selector_peer_context).await;
-
-        let _ = sx.send(res);
-    });
-
-    loop {
-        let timeout_dur = Duration::from_secs(60);
-
-        tokio::select! {
-             _ = sleep(timeout_dur) => {
-                peer_context.sender.send(Message::KeepAlive)?;
-
-                log::debug!("\tmessage_sender:\tsend `KeepAlive` message");
-             }
-
-            Some(msg) = rx.recv() => {
-                    let msg = msg?;
-
-                    log::debug!("\tmessage_sender:\tsending message{}",msg);
-
-                    peer_context.sender.send(msg)?;
-             }
-        }
+        ret
     }
-}
 
-/// If the client can download from remote Peer then select a [`Message`] to send to the remote
-/// Peer.
-async fn select_message(context: Arc<Context>, peer_context: Arc<PeerContext>) -> Result<Message> {
-    log::debug!("\tselect_message:\tSelecting Message");
-
-    loop {
-        if let Ok(val) = peer_context.client_download() {
-            if val {
-                todo!("Implement select_message");
+    /// Check if any last message was sent. If no message was sent at all then send
+    /// [`Message::KeepAlive`]. If last message was sent more than 120 seconds ago send
+    /// [`Message::KeepAlive`] else [`None`].
+    pub fn check_duration(&self) -> Option<Message> {
+        match self.last_message_sent {
+            Some(duration) => {
+                match duration.checked_duration_since(Instant::now()) {
+                    Some(duration) => {
+                        if duration > Duration::from_secs(120) {
+                            Some(Message::KeepAlive)
+                        } else {
+                            None
+                        }
+                    }
+                    None => None
+                }
             }
+            None => Some(Message::KeepAlive),
         }
+    }
+
+    /// Send messages to the remote Peer
+    pub fn send(&mut self, msg: Message) -> Result<()> {
+        match self.peer_context.sender.send(msg) {
+            Ok(()) => {
+                self.last_message_sent = Some(Instant::now());
+                Ok(())
+            }
+            Err(err) => Err(TorrusError::new(&err.to_string()))
+        } 
+    }
+
+    /// Close all communications with the Peer
+    pub fn close(self) {
+        self.peer_context.close_session();
+        self.join_handle.abort();
     }
 }
 
@@ -172,32 +129,12 @@ async fn handle_receiver(
             log::debug!("\thandle_receiver:\tReceived Message {}", msg);
             match msg {
                 KeepAlive => {
-                    if let Err(err) =
-                        peer_context.set_connection_status(ConnectionStatus::Connected)
-                    {
-                        log::error!("Error:\t{}", err)
-                    }
+                    peer_context.set_connection_status(ConnectionStatus::Connected);
                 }
-                Choke => {
-                    if let Err(err) = peer_context.set_peer_choking(ChokeStatus::Choked) {
-                        log::error!("Error:\t{}", err)
-                    }
-                }
-                Unchoke => {
-                    if let Err(err) = peer_context.set_peer_choking(ChokeStatus::Unchoked) {
-                        log::error!("Error:\t{}", err)
-                    }
-                }
-                Interested => {
-                    if let Err(err) = peer_context.set_peer_interested(Intrest::Interested) {
-                        log::error!("Error:\t{}", err)
-                    }
-                }
-                NotInterested => {
-                    if let Err(err) = peer_context.set_peer_interested(Intrest::NotInterested) {
-                        log::error!("Error:\t{}", err)
-                    }
-                }
+                Choke => peer_context.set_peer_choking(ChokeStatus::Choked),
+                Unchoke => peer_context.set_peer_choking(ChokeStatus::Unchoked),
+                Interested => peer_context.set_peer_interested(Intrest::Interested),
+                NotInterested => peer_context.set_peer_interested(Intrest::NotInterested),
                 Have(index) => {
                     if let Err(err) = peer_context.set_index(index) {
                         log::error!("Error:\t{}", err)
@@ -212,20 +149,13 @@ async fn handle_receiver(
                     log::info!("Port Implementation still pending")
                 }
                 Bitfield(bitfield) => match context.match_bitfield_len(bitfield.len()) {
-                    Ok(res) => {
-                        if res {
-                            if let Err(err) = peer_context.set_bitfield(bitfield) {
-                                log::error!("Error:\t{}", err)
-                            }
-                        } else {
-                            let _ =
-                                peer_context.set_connection_status(ConnectionStatus::Disconnected);
-                            peer_context.close_session();
-                            return Err(TorrusError::new("Bitfield length did not match"));
-                        }
+                    true => {
+                        peer_context.set_bitfield(bitfield);
                     }
-                    Err(err) => {
-                        log::error!("Error:\t{}", err)
+                    false => {
+                        let _ = peer_context.set_connection_status(ConnectionStatus::Disconnected);
+                        peer_context.close_session();
+                        return Err(TorrusError::new("Bitfield length did not match"));
                     }
                 },
                 _ => {
