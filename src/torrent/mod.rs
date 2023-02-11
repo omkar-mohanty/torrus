@@ -1,7 +1,7 @@
 use futures::{future::join_all, FutureExt, SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
@@ -10,8 +10,8 @@ use tokio_util::codec::Framed;
 use crate::block::Block;
 use crate::client::TorrentCommand;
 use crate::error::TorrusError;
-use crate::message::Handshake;
-use crate::peer::{message_codec::HandShakeCodec, new_peer, Peer};
+use crate::message::{Handshake, Message};
+use crate::peer::{message_codec::HandShakeCodec, new_peer, PeerHandle};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
 use crate::{metainfo::Metainfo, piece::PieceHandler};
@@ -94,7 +94,7 @@ impl Context {
         self.metainfo.info.length
     }
 
-    fn get_mutex<F, T>(&self, func: F) -> Result<T>
+    fn get_mutex<F, T>(&self, func: F) -> T
     where
         F: FnOnce(MutexGuard<PieceHandler>) -> T,
     {
@@ -103,15 +103,15 @@ impl Context {
         // Critical section
         let ret = func(handler);
 
-        Ok(ret)
+        ret
     }
 
-    pub fn match_bitfield_len(&self, len: usize) -> Result<bool> {
+    pub fn match_bitfield_len(&self, len: usize) -> bool {
         self.get_mutex(|handler| handler.match_bitfield_len(len))
     }
 
     pub fn insert_block(&self, block: Block) -> Result<()> {
-        self.get_mutex(|mut handler| handler.insert_block(block))?
+        self.get_mutex(|mut handler| handler.insert_block(block))
     }
 }
 
@@ -122,7 +122,7 @@ pub struct Torrent {
     /// 20 Byte PeerID of the client
     client_id: PeerId,
     /// hash map of peerID and the coresponding peer handle
-    peers: HashMap<PeerId, Peer>,
+    peers: HashMap<PeerId, PeerHandle>,
     /// Peer Discovery
     discovery: Discovery,
 }
@@ -184,12 +184,17 @@ impl Torrent {
         }
     }
 
-    async fn get_peers(&mut self, port: u16) -> Option<Vec<PeerAddr>> {
+    async fn need_peers(&self) -> Option<i32> {
         if self.peers.len() < 30 {
-            let peers = self
-                .discovery
-                .get_peers(30 - self.peers.len() as i32, port)
-                .await;
+            Some(30 - self.peers.len() as i32)
+        } else {
+            None
+        }
+    }
+
+    async fn get_peers(&mut self, port: u16, num_want: i32) -> Option<Vec<PeerAddr>> {
+        if self.peers.len() < 30 {
+            let peers = self.discovery.get_peers(num_want, port).await;
 
             match peers {
                 Ok(peers) => Some(peers),
@@ -266,6 +271,33 @@ impl Torrent {
         Ok(())
     }
 
+    pub async fn select_messages(&self) -> Option<HashMap<PeerId, Message>> {
+        let mut messages = HashMap::new();
+
+        for (id, peer) in &self.peers {
+            if let Some(msg) = peer.select_message() {
+                messages.insert(id.clone(), msg);
+            }
+        }
+
+        if messages.len() == 0 {
+            None
+        } else {
+            Some(messages)
+        }
+    }
+
+    fn send_messages(&mut self, messages: HashMap<PeerId, Message>) {
+        for (id, msg) in messages {
+            if let Some(peer) = self.peers.get_mut(&id) {
+                if let Err(_) = peer.send(msg) {
+                    let peer = self.peers.remove(&id).unwrap();
+                    peer.close();
+                }
+            }
+        }
+    }
+
     async fn handle_events(&mut self, mut rx: TorrentCommandReceiver) -> Result<()> {
         let addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
@@ -275,7 +307,7 @@ impl Torrent {
 
         loop {
             tokio::select! {
-             Some(cmd) = rx.recv() => {
+            Some(cmd) = rx.recv() => {
                 self.handle_command(cmd);
              }
              res = listner.accept() => {
@@ -283,8 +315,16 @@ impl Torrent {
                        let _ =  self.insert_new_peer_stream(stream);
                     }
                 }
-             Some(peers) = self.get_peers(port) => {
-                     self.get_peer_streams(peers).await;
+            Some(num_want) = self.need_peers() => {
+                    log::debug!("\tRequesting for {num_want} peers");
+                    if let Some(peers) = self.get_peers(port,num_want).await {
+                         log::debug!("\tRequesting for {} peers", peers.len());
+                         self.get_peer_streams(peers).await;
+                    }
+                }
+            Some(messages) = self.select_messages() => {
+                    log::debug!("\tSending {} messages", messages.len());
+                    self.send_messages(messages);
                 }
             }
         }
@@ -381,7 +421,7 @@ mod tests {
         let client_id = new_peer_id();
         let context = Context::new(piece_handler, client_id, metainfo)?;
 
-        let val = context.match_bitfield_len(Bitfield::new().len())?;
+        let val = context.match_bitfield_len(Bitfield::new().len());
 
         assert!(val);
         Ok(())
@@ -400,18 +440,25 @@ mod tests {
         let context2 = Arc::clone(&context);
 
         let handle1 = tokio::spawn(async move {
-            context1.insert_block(Block { block_info: crate::block::BlockInfo { piece_index: 0, begin: 0 }, data: vec![] })?;
+            context1.insert_block(Block {
+                block_info: crate::block::BlockInfo {
+                    piece_index: 0,
+                    begin: 0,
+                },
+                data: vec![],
+            })?;
             Ok::<(), TorrusError>(())
         });
 
-        let handle2 = tokio::spawn(async move  {
-            context2.match_bitfield_len(Bitfield::new().len())?;
+        let handle2 = tokio::spawn(async move {
+            context2.match_bitfield_len(Bitfield::new().len());
             Ok::<(), TorrusError>(())
         });
 
-        let (res1,res2) = futures::try_join!(handle1,handle2).unwrap();
+        let (res1, res2) = futures::try_join!(handle1, handle2).unwrap();
 
         res1?;
+
         res2?;
         Ok(())
     }

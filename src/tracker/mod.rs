@@ -75,6 +75,7 @@ impl Tracker {
         port: u16,
     ) -> crate::Result<TrackerResponse> {
         let info_hash = self.torrent.hash();
+
         let left = self.torrent.length();
 
         let announce_request = TrackerRequestBuilder::new()
