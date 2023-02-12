@@ -63,7 +63,7 @@ impl Discovery {
 
 pub struct Context {
     /// Handles all IO operations
-    pub piece_handler: Mutex<PieceHandler>,
+    piece_handler: Mutex<PieceHandler>,
     /// 20 byte infohash of the torrent
     pub info_hash: Hash,
     /// 20 byte client ID
@@ -94,16 +94,14 @@ impl Context {
         self.metainfo.info.length
     }
 
-    fn get_mutex<F, T>(&self, func: F) -> T
+    pub fn get_mutex<F, T>(&self, func: F) -> T
     where
         F: FnOnce(MutexGuard<PieceHandler>) -> T,
     {
         let handler = self.piece_handler.lock().unwrap();
 
         // Critical section
-        let ret = func(handler);
-
-        ret
+        func(handler)
     }
 
     pub fn match_bitfield_len(&self, len: usize) -> bool {
@@ -276,6 +274,7 @@ impl Torrent {
 
         for (id, peer) in &self.peers {
             if let Some(msg) = peer.select_message() {
+                log::debug!("\tselect_messages:\t{}", msg);
                 messages.insert(id.clone(), msg);
             }
         }
@@ -309,19 +308,19 @@ impl Torrent {
             tokio::select! {
             Some(cmd) = rx.recv() => {
                 self.handle_command(cmd);
-             }
-             res = listner.accept() => {
+            }
+            res = listner.accept() => {
                 if let Ok((stream, _)) = res {
-                       let _ =  self.insert_new_peer_stream(stream);
-                    }
+                    let _ =  self.insert_new_peer_stream(stream);
                 }
+            }
             Some(num_want) = self.need_peers() => {
                     log::debug!("\tRequesting for {num_want} peers");
                     if let Some(peers) = self.get_peers(port,num_want).await {
                          log::debug!("\tRequesting for {} peers", peers.len());
                          self.get_peer_streams(peers).await;
-                    }
                 }
+            }
             Some(messages) = self.select_messages() => {
                     log::debug!("\tSending {} messages", messages.len());
                     self.send_messages(messages);

@@ -63,14 +63,6 @@ impl Piece {
         Self { piece_info, blocks }
     }
 
-    pub fn pending(&self) -> bool {
-        self.piece_info.pending
-    }
-
-    pub fn frequency(&self) -> usize {
-        self.piece_info.frequency
-    }
-
     pub fn validate(&self) -> bool {
         let mut hasher = Sha1::new();
 
@@ -206,6 +198,10 @@ impl PieceHandler {
         }
     }
 
+    pub fn get_bitfield(&self) -> &Bitfield {
+        &self.bitfield
+    }
+
     pub fn miss_count(&self) -> usize {
         self.miss_count
     }
@@ -216,16 +212,8 @@ impl PieceHandler {
 
     /// For now the [`PieceHandler`] picks a [`Piece`] which is pending later a rarest first
     /// algorithm should be implemented.
-    pub fn pick_piece(&self) -> BlockInfo {
-        let mut piece = &self.pieces[0];
-
-        for index in 0..self.bitfield.len() {
-            piece = &self.pieces[index];
-
-            if !self.bitfield[index] && piece.frequency() > 0 && piece.pending() {
-                break;
-            }
-        }
+    pub fn pick_piece(&self, index: PieceIndex) -> BlockInfo {
+        let piece = &self.pieces[index];
 
         log::debug!("\tpick_piece:\tpicked{}", piece.piece_info.index);
 
