@@ -77,7 +77,7 @@ impl PeerContext {
 
     pub fn set_index(&self, index: PieceIndex) -> Result<()> {
         self.get_mutex(|mut state| {
-            if index >= state.peer_state.bitfield.len() {
+            if index >= state.peer_state.bitfield.capacity() {
                 let msg = format!(
                     "Cannot set index {} for bitfield of length {}",
                     index,

@@ -72,6 +72,10 @@ pub enum ConnectionStatus {
 impl PeerState {
     pub fn new(bitfield_len: usize) -> Self {
         let bitfield = Bitfield::with_capacity(bitfield_len);
+        log::debug!(
+            "\tnew:\tbitfield length:{}",
+            bitfield.capacity() >= bitfield_len
+        );
         Self {
             intrest: Intrest::NotInterested,
             choke: ChokeStatus::Choked,

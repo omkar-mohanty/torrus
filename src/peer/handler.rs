@@ -1,10 +1,11 @@
 use super::peer_context::PeerContext;
+use crate::block::BLOCK_SIZE;
 use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::session::PeerSession;
 use crate::peer::state::{ChokeStatus, ConnectionStatus, Intrest};
 use crate::torrent::Context;
-use crate::{PeerId, Receiver};
+use crate::{PeerId, PieceIndex, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -23,7 +24,7 @@ pub struct PeerHandle {
     /// Context shared by [`Torrent`] and [`PeerHandle`]
     pub peer_context: Arc<PeerContext>,
     /// Sender and receiver join handle
-    pub join_handle: JoinHandle<Result<()>>,
+    pub join_handle: JoinHandle<()>,
     /// Context of the torrent to which the peer belongs
     pub torrent_context: Arc<Context>,
     /// Time of the last send message
@@ -56,9 +57,9 @@ impl PeerHandle {
             handle_receiver(receiver, receiver_context, Arc::clone(&task_peer_context));
 
         let join_handle = tokio::spawn(async move {
-            receiver_join_handle.await?;
-
-            Ok::<(), TorrusError>(())
+            if let Err(err) = receiver_join_handle.await {
+                log::error!("\tjoin_handle_thread:\t{}", err);
+            }
         });
 
         Self {
@@ -69,10 +70,48 @@ impl PeerHandle {
         }
     }
 
-    pub fn select_message(&self) -> Option<Message> {
-        let ret = self.check_duration();
+    fn get_bitfield_index(&self) -> Option<PieceIndex> {
+        self.peer_context.get_mutex(|state| {
+            let client_bitfield = self
+                .torrent_context
+                .get_mutex(|state| state.get_bitfield().clone());
 
-        ret
+            let iter1 = client_bitfield.iter().enumerate();
+
+            let iter2 = state.peer_state.bitfield.iter().enumerate();
+
+            for (client, peer) in iter1.zip(iter2) {
+                let (_, client_bit) = client;
+
+                let (peer_index, peer_bit) = peer;
+
+                if client_bit != peer_bit {
+                    return Some(peer_index);
+                }
+            }
+            None
+        })
+    }
+
+    pub fn select_message(&self) -> Option<Message> {
+        if let Some(msg) = self.check_duration() {
+            return Some(msg);
+        }
+
+        match self.get_bitfield_index() {
+            Some(index) => {
+                let block_info = self
+                    .torrent_context
+                    .get_mutex(|handler| handler.pick_piece(index.clone()));
+
+                Some(Message::Request {
+                    index,
+                    begin: block_info.begin,
+                    length: BLOCK_SIZE,
+                })
+            }
+            None => None,
+        }
     }
 
     /// Check if any last message was sent. If no message was sent at all then send
@@ -80,19 +119,17 @@ impl PeerHandle {
     /// [`Message::KeepAlive`] else [`None`].
     pub fn check_duration(&self) -> Option<Message> {
         match self.last_message_sent {
-            Some(duration) => {
-                match duration.checked_duration_since(Instant::now()) {
-                    Some(duration) => {
-                        if duration > Duration::from_secs(120) {
-                            Some(Message::KeepAlive)
-                        } else {
-                            None
-                        }
+            Some(duration) => match duration.checked_duration_since(Instant::now()) {
+                Some(duration) => {
+                    if duration > Duration::from_secs(120) {
+                        Some(Message::KeepAlive)
+                    } else {
+                        None
                     }
-                    None => None
                 }
-            }
-            None => Some(Message::KeepAlive),
+                None => None,
+            },
+            None => Some(Message::Interested),
         }
     }
 
@@ -103,14 +140,18 @@ impl PeerHandle {
                 self.last_message_sent = Some(Instant::now());
                 Ok(())
             }
-            Err(err) => Err(TorrusError::new(&err.to_string()))
-        } 
+            Err(err) => Err(TorrusError::new(&err.to_string())),
+        }
     }
 
     /// Close all communications with the Peer
     pub fn close(self) {
         self.peer_context.close_session();
         self.join_handle.abort();
+    }
+
+    pub async fn check_connection(&self) -> bool {
+        self.join_handle.is_finished()
     }
 }
 
