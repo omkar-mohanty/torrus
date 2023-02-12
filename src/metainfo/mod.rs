@@ -100,10 +100,24 @@ impl Metainfo {
                 total_length += file.length;
             }
 
-            total_length / self.info.piece_length
+            let mut total = total_length / self.info.piece_length;
+
+            if total_length % self.info.piece_length != 0 {
+                total += 1;
+            }
+
+            total
         } else {
-            self.info.length / self.info.piece_length
+            let mut total = self.info.length / self.info.piece_length;
+
+            if self.info.length % self.info.piece_length != 0 {
+                total += 1;
+            }
+
+            total
         };
+
+        log::debug!("\ttotal_pieces:\t{}", total_pieces);
 
         total_pieces as usize
     }
