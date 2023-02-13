@@ -85,7 +85,10 @@ impl PeerHandle {
 
                 let (peer_index, peer_bit) = peer;
 
+                log::debug!("\tget_bitfield_index:\tpeer_bit : {} client_bit : {}", peer_bit, client_bit);
+
                 if client_bit != peer_bit {
+                    log::debug!("\tget_bitfield_index:\t{}", peer_index);
                     return Some(peer_index);
                 }
             }
@@ -191,12 +194,20 @@ async fn handle_receiver(
                 }
                 Bitfield(bitfield) => match context.match_bitfield_len(bitfield.len()) {
                     true => {
+                        log::debug!(
+                            "\thandle_receiver:\thave : {}, not : {}",
+                            bitfield.count_ones(),
+                            bitfield.count_zeros()
+                        );
                         peer_context.set_bitfield(bitfield);
                     }
                     false => {
                         let _ = peer_context.set_connection_status(ConnectionStatus::Disconnected);
                         peer_context.close_session();
-                        return Err(TorrusError::new("Bitfield length did not match"));
+                        return Err(TorrusError::new(&format!(
+                            "Got Bitfield of length {}",
+                            bitfield.len()
+                        )));
                     }
                 },
                 _ => {
