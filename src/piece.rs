@@ -243,7 +243,7 @@ impl PieceHandler {
 
     /// Check if the input [`Bitfield`] matches with [`PieceHandler`]'s Bitfield
     pub fn match_bitfield_len(&self, len: usize) -> bool {
-        self.bitfield.len() == len
+        self.bitfield.capacity() == len
     }
 }
 
