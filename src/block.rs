@@ -58,6 +58,14 @@ pub struct BlockInfo {
     pub piece_index: PieceIndex,
     /// The offset in bytes within int 'Piece'
     pub begin: u32,
+    /// Length of the block
+    pub length: u32
+}
+
+impl BlockInfo {
+    pub fn new(piece_index: PieceIndex, begin: u32) -> Self {
+        BlockInfo { piece_index, begin, length: BLOCK_SIZE }
+    }
 }
 
 pub fn block_count(piece_length: u64) -> usize {
