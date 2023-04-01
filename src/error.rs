@@ -14,6 +14,10 @@ impl TorrusError {
     pub fn new(msg: &str) -> Self {
         Self(msg.to_string())
     }
+
+    pub fn from_error<T: Error>(error: T) -> Self {
+        Self(error.to_string())
+    }
 }
 
 impl std::fmt::Display for TorrusError {
