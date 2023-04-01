@@ -264,7 +264,7 @@ impl Into<String> for Query {
     }
 }
 
-pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
+pub fn from_url<'a>(url: &'a Url) -> Box<dyn Session<TrackerRequest> + Send + 'a> {
     match url.scheme() {
         "http" | "https" => from_url_http(url),
         "udp" => from_url_udp(url),
@@ -272,7 +272,7 @@ pub fn from_url<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>
     }
 }
 
-fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
+fn from_url_udp<'a>(url: &'a Url) -> Box<dyn Session<TrackerRequest> + Send + 'a> {
     Box::new(UdpSession {
         url,
         connection_id: None,
@@ -280,7 +280,7 @@ fn from_url_udp<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T>
     })
 }
 
-fn from_url_http<T: Into<Query> + Send + 'static>(url: Url) -> Box<dyn Session<T> + Send> {
+fn from_url_http<'a>(url: &'a Url) -> Box<dyn Session<TrackerRequest> + Send + 'a> {
     match url.scheme() {
         "https" => Box::new(HttpSession {
             url,
@@ -302,13 +302,13 @@ pub trait Session<T: Into<Query>> {
     async fn send(&mut self, message: TrackerRequest) -> Result<TrackerResponse>;
 }
 
-struct UdpSession {
-    url: Url,
+struct UdpSession<'a> {
+    url: &'a Url,
     connection_id: Option<u64>,
     transaction_id: Option<u32>,
 }
 
-impl UdpSession {
+impl<'a> UdpSession<'a> {
     async fn connect(&mut self) -> Result<()> {
         let socket_addrs = self.url.socket_addrs(|| None)?;
 
@@ -382,7 +382,7 @@ impl UdpSession {
 }
 
 #[async_trait]
-impl<T> Session<T> for UdpSession
+impl<'a, T> Session<T> for UdpSession<'a>
 where
     T: Into<Query> + Send + 'static,
 {
@@ -412,12 +412,12 @@ where
     }
 }
 
-struct HttpSession<T> {
-    url: Url,
+struct HttpSession<'a, T> {
+    url: &'a Url,
     client: Client<T>,
 }
 
-impl<T> HttpSession<T>
+impl<'a, T> HttpSession<'a, T>
 where
     T: Connect + Clone + Send + Sync + 'static,
 {
@@ -471,7 +471,7 @@ where
 }
 
 #[async_trait]
-impl<T, K> Session<T> for HttpSession<K>
+impl<'a, T, K> Session<T> for HttpSession<'a, K>
 where
     T: Into<Query> + Send + 'static,
     K: Connect + Clone + Send + Sync + 'static,

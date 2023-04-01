@@ -9,10 +9,12 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
+use tokio::time::Interval;
 use url::{form_urlencoded::byte_serialize, Url};
 
-use connection::{from_url, Query, Session};
+use connection::{from_url, Query};
 
 mod connection;
 
@@ -30,12 +32,14 @@ pub enum TrackerState {
 pub struct Tracker {
     /// A tracker may be responsive or unresponsive
     alive: TrackerState,
-    /// Abstraction over tracker protocol
-    session: Box<dyn Session<TrackerRequest> + Send>,
+    /// url of the tracker
+    url: Url,
     /// Torrent metainfo
     torrent: Arc<Context>,
     /// Tracker ID
     tracker_id: Option<ByteBuf>,
+    /// Last time a request was sent
+    interval: Option<Interval>,
 }
 
 unsafe impl Send for Tracker {}
@@ -44,26 +48,20 @@ unsafe impl Sync for Tracker {}
 
 impl Tracker {
     fn new(url: Url, torrent: Arc<Context>) -> Self {
-        let session = from_url(url);
-
         Self {
             alive: TrackerState::Dead,
-            session,
+            url,
             torrent,
             tracker_id: None,
+            interval: None,
         }
     }
 
     /// Send tracker request to the given url
-    pub async fn send_request(
-        &mut self,
-        tracker_request: TrackerRequest,
-    ) -> Result<TrackerResponse> {
-        let response = self.session.send(tracker_request).await?;
+    pub async fn send_request(&self, tracker_request: TrackerRequest) -> Result<TrackerResponse> {
+        let mut session = from_url(&self.url);
 
-        self.alive = TrackerState::Alive;
-
-        self.tracker_id = response.tracker_id.clone();
+        let response = session.send(tracker_request).await?;
 
         Ok(response)
     }
@@ -74,6 +72,10 @@ impl Tracker {
         num_want: i32,
         port: u16,
     ) -> crate::Result<TrackerResponse> {
+        if let Some(interval) = self.interval.as_mut() {
+            interval.tick().await;
+        }
+
         let info_hash = self.torrent.hash();
 
         let left = self.torrent.length();
@@ -90,6 +92,14 @@ impl Tracker {
             .build();
 
         let response = self.send_request(announce_request).await?;
+
+        self.tracker_id = response.tracker_id.clone();
+        self.alive = TrackerState::Alive;
+
+        if let Some(interval) = response.min_interval {
+            let duration = Duration::from_secs(interval);
+            self.interval = Some(tokio::time::interval(duration));
+        }
 
         Ok(response)
     }

@@ -440,10 +440,7 @@ mod tests {
 
         let handle1 = tokio::spawn(async move {
             context1.insert_block(Block {
-                block_info: crate::block::BlockInfo {
-                    piece_index: 0,
-                    begin: 0,
-                },
+                block_info: crate::block::BlockInfo::new(0, 0) ,
                 data: vec![],
             })?;
             Ok::<(), TorrusError>(())
