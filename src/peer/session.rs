@@ -88,13 +88,14 @@ impl PeerSession {
 mod tests {
     use super::*;
     use crate::{
-        block::{Block, BlockInfo},
+        block::{Block, BlockInfo, BLOCK_SIZE},
         Bitfield,
     };
     use std::{net::SocketAddr, str::FromStr};
     use tokio::net::TcpListener;
 
     fn get_message(id: u8) -> Message {
+        let block_info = BlockInfo{piece_index: 12, begin:12, length: BLOCK_SIZE};
         match id {
             0 => Message::KeepAlive,
             1 => Message::Choke,
@@ -102,11 +103,7 @@ mod tests {
             3 => Message::Interested,
             4 => Message::NotInterested,
             5 => Message::Have(12),
-            6 => Message::Request {
-                index: 12,
-                begin: 12,
-                length: 12,
-            },
+            6 => Message::Request(block_info) ,
             7 => Message::Cancel {
                 index: 12,
                 begin: 12,
@@ -117,6 +114,7 @@ mod tests {
                 let block_info = BlockInfo {
                     piece_index: 12,
                     begin: 12,
+                    length:BLOCK_SIZE
                 };
 
                 let data = vec![];
@@ -125,11 +123,7 @@ mod tests {
 
                 Message::Piece(block)
             }
-            10 => Message::Request {
-                index: 12,
-                begin: 12,
-                length: 12,
-            },
+            10 => Message::Request(block_info) ,
             11 => Message::Have(12),
             12 => {
                 let bitfield = Bitfield::new();
