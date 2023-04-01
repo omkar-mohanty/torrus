@@ -1,5 +1,4 @@
 use super::peer_context::PeerContext;
-use crate::block::BLOCK_SIZE;
 use crate::error::TorrusError;
 use crate::message::Message;
 use crate::peer::session::PeerSession;
@@ -85,7 +84,11 @@ impl PeerHandle {
 
                 let (peer_index, peer_bit) = peer;
 
-                log::debug!("\tget_bitfield_index:\tpeer_bit : {} client_bit : {}", peer_bit, client_bit);
+                log::debug!(
+                    "\tget_bitfield_index:\tpeer_bit : {} client_bit : {}",
+                    peer_bit,
+                    client_bit
+                );
 
                 if client_bit != peer_bit {
                     log::debug!("\tget_bitfield_index:\t{}", peer_index);
@@ -101,20 +104,13 @@ impl PeerHandle {
             return Some(msg);
         }
 
-        match self.get_bitfield_index() {
-            Some(index) => {
-                let block_info = self
-                    .torrent_context
-                    .get_mutex(|handler| handler.pick_piece(index.clone()));
+        let index = self.get_bitfield_index()?;
 
-                Some(Message::Request {
-                    index,
-                    begin: block_info.begin,
-                    length: BLOCK_SIZE,
-                })
-            }
-            None => None,
-        }
+        let block_info = self
+            .torrent_context
+            .get_mutex(|handler| handler.pick_piece(index.clone()));
+
+        Some(Message::Request(block_info))
     }
 
     /// Check if any last message was sent. If no message was sent at all then send
