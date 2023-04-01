@@ -109,16 +109,12 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u8(MessageID::Bitfield as u8);
                 dst.extend_from_slice(bitfield.as_raw_slice());
             }
-            Request {
-                index,
-                begin,
-                length,
-            } => {
+            Request(block_info)  => {
                 dst.put_u32(13);
                 dst.put_u8(MessageID::Request as u8);
-                dst.put_u32(index as u32);
-                dst.put_u32(begin);
-                dst.put_u32(length);
+                dst.put_u32(block_info.piece_index as u32);
+                dst.put_u32(block_info.begin);
+                dst.put_u32(block_info.length);
             }
             Piece(block) => {
                 // 1 byte Message ID + 4 bytes piece index + 4 bytes offset = 9 bytes fixed
@@ -188,14 +184,15 @@ impl Decoder for PeerCodec {
                 Message::Bitfield(Bitfield::from_vec(bitfield))
             }
             MessageID::Request => {
-                let index = src.get_u32() as usize;
+                let piece_index = src.get_u32() as usize;
                 let begin = src.get_u32();
                 let length = src.get_u32();
-                Message::Request {
-                    index,
+                let block_info = BlockInfo {
+                    piece_index,
                     begin,
                     length,
-                }
+                };
+                Message::Request(block_info) 
             }
             MessageID::Piece => {
                 // 9 bytes is fixed in all 'Piece' messages the actual paylod length is always
@@ -212,6 +209,7 @@ impl Decoder for PeerCodec {
                 let block_info = BlockInfo {
                     piece_index: index,
                     begin,
+                    length: len - 9
                 };
                 let block = Block::new(block_info, data);
                 Message::Piece(block)
@@ -239,6 +237,11 @@ impl Decoder for PeerCodec {
 
 #[cfg(test)]
 mod tests {
+    const BLOCK_INFO:BlockInfo =  BlockInfo{
+        piece_index:12,
+        length: 12,
+        begin:12
+    };
     use super::*;
     use crate::{block::BLOCK_SIZE, Result};
     use bytes::BytesMut;
@@ -252,11 +255,7 @@ mod tests {
             3 => Message::Interested,
             4 => Message::NotInterested,
             5 => Message::Have(12),
-            6 => Message::Request {
-                index: 12,
-                begin: 12,
-                length: 12,
-            },
+            6 => Message::Request(BLOCK_INFO) ,
             7 => Message::Cancel {
                 index: 12,
                 begin: 12,
@@ -347,11 +346,6 @@ mod tests {
 
     #[test]
     fn test_piece_codec() -> Result<()> {
-        let block_info = BlockInfo {
-            piece_index: 12,
-            begin: 12,
-        };
-
         let data_len = thread_rng().gen_range(0..BLOCK_SIZE);
         let mut data = Vec::new();
 
@@ -359,7 +353,7 @@ mod tests {
             data.push(thread_rng().gen::<u8>());
         }
 
-        let block = Block::new(block_info, data);
+        let block = Block::new(BLOCK_INFO, data);
         let mut dst = BytesMut::new();
         let msg = Message::Piece(block);
         PeerCodec.encode(msg, &mut dst)?;
@@ -374,10 +368,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_incorrect_block_size() {
-        let block_info = BlockInfo {
-            piece_index: 12,
-            begin: 12,
-        };
+        let block_info = BlockInfo::new(12, 12) ;
 
         let data_len = BLOCK_SIZE + 1;
         let mut data = Vec::new();
