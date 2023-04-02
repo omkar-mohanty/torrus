@@ -4,7 +4,7 @@ use crate::message::Message;
 use crate::peer::session::PeerSession;
 use crate::peer::state::{ChokeStatus, ConnectionStatus, Intrest};
 use crate::torrent::Context;
-use crate::{PeerId, PieceIndex, Receiver};
+use crate::{PeerId, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
