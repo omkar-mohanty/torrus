@@ -212,19 +212,17 @@ impl PieceHandler {
 
     /// For now the [`PieceHandler`] picks a [`Piece`] which is pending later a rarest first
     /// algorithm should be implemented.
-    pub fn pick_piece(&self, index: PieceIndex) -> BlockInfo {
-        let piece = &self.pieces[index];
+    pub fn pick_piece(&self, index: &PieceIndex) -> BlockInfo {
+        let piece = &self.pieces[*index];
 
         log::debug!("\tpick_piece:\tpicked{}", piece.piece_info.index);
-
-        unimplemented!("Implement proper pice picking algorithm");
 
         match piece.request_block() {
             Some(block_info) => block_info,
             None => BlockInfo {
                 piece_index: piece.piece_info.index,
                 begin: 0,
-                length:0
+                length: BLOCK_SIZE,
             },
         }
     }
@@ -304,7 +302,7 @@ mod tests {
         let block_info = BlockInfo {
             begin: 0,
             piece_index: 0,
-            length:0
+            length: 0,
         };
 
         let block = Block::new(block_info, data);
@@ -351,7 +349,7 @@ mod tests {
         let block_info = BlockInfo {
             piece_index: 0,
             begin: 0,
-            length:0
+            length: 0,
         };
 
         let block = Block::new(block_info, data);
