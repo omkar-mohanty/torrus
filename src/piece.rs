@@ -272,7 +272,7 @@ fn get_overlapping_range(files: &[RwLock<TorrentFile>], piece: &PieceInfo) -> Ra
     for (index, file) in files.iter().enumerate().skip(first_index + 1) {
         let file = file.read().unwrap();
 
-        if !piece_range.contains(&(file.get_offset() as usize)) {
+        if !piece_range.contains(&(file.get_offset())) {
             break;
         }
 
