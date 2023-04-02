@@ -1,6 +1,10 @@
 use std::fmt::Display;
 
-use crate::{block::{Block, BlockInfo}, error::TorrusError, Bitfield, Hash, PeerId, PieceIndex};
+use crate::{
+    block::{Block, BlockInfo},
+    error::TorrusError,
+    Bitfield, Hash, PeerId, PieceIndex,
+};
 /// Struct representing the 'Handshake' of the Bittorrent protocol
 pub struct Handshake {
     pub peer_id: PeerId,
@@ -31,7 +35,7 @@ pub enum Message {
     NotInterested,
     Have(PieceIndex),
     Bitfield(Bitfield),
-    Request(BlockInfo) ,
+    Request(BlockInfo),
     Piece(Block),
     Cancel {
         index: PieceIndex,
@@ -52,13 +56,14 @@ impl Display for Message {
             NotInterested => f.write_str("Not Interested"),
             Have(index) => f.write_fmt(format_args!("Have Index : {index}")),
             Bitfield(bitfield) => f.write_fmt(format_args!("Bitfield : {}", bitfield.len())),
-            Request(block_info)  =>{
+            Request(block_info) => {
                 let index = block_info.piece_index;
                 let begin = block_info.begin;
                 let length = block_info.length;
                 f.write_fmt(format_args!(
-                "Request Index : {index}, Begin : {begin}, Length : {length}"
-            ))},
+                    "Request Index : {index}, Begin : {begin}, Length : {length}"
+                ))
+            }
             Piece(block) => f.write_fmt(format_args!(
                 "Piece index : {}, begin : {}",
                 block.block_info.piece_index, block.block_info.begin
