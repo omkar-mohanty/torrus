@@ -24,10 +24,10 @@ pub struct PeerHandle {
     pub peer_context: Arc<PeerContext>,
     /// Sender and receiver join handle
     pub join_handle: JoinHandle<()>,
-    /// Context of the torrent to which the peer belongs
-    pub torrent_context: Arc<Context>,
     /// Time of the last send message
-    pub last_message_sent: Option<Instant>,
+    pub time_last_msg: Option<Instant>,
+    /// Context of the torrent
+    pub torrent_context: Arc<Context>,
 }
 
 impl PeerHandle {
@@ -64,70 +64,25 @@ impl PeerHandle {
         Self {
             peer_context,
             join_handle,
+            time_last_msg: None,
             torrent_context,
-            last_message_sent: None,
         }
-    }
-
-    fn get_bitfield_index(&self) -> Option<PieceIndex> {
-        self.peer_context.get_mutex(|state| {
-            let client_bitfield = self
-                .torrent_context
-                .get_mutex(|state| state.get_bitfield().clone());
-
-            let iter1 = client_bitfield.iter().enumerate();
-
-            let iter2 = state.peer_state.bitfield.iter().enumerate();
-
-            for (client, peer) in iter1.zip(iter2) {
-                let (_, client_bit) = client;
-
-                let (peer_index, peer_bit) = peer;
-
-                log::debug!(
-                    "\tget_bitfield_index:\tpeer_bit : {} client_bit : {}",
-                    peer_bit,
-                    client_bit
-                );
-
-                if client_bit != peer_bit {
-                    log::debug!("\tget_bitfield_index:\t{}", peer_index);
-                    return Some(peer_index);
-                }
-            }
-            None
-        })
-    }
-
-    pub fn select_message(&self) -> Option<Message> {
-        if let Some(msg) = self.check_duration() {
-            return Some(msg);
-        }
-
-        let index = self.get_bitfield_index()?;
-
-        let block_info = self
-            .torrent_context
-            .get_mutex(|handler| handler.pick_piece(index.clone()));
-
-        Some(Message::Request(block_info))
     }
 
     /// Check if any last message was sent. If no message was sent at all then send
     /// [`Message::KeepAlive`]. If last message was sent more than 120 seconds ago send
     /// [`Message::KeepAlive`] else [`None`].
     pub fn check_duration(&self) -> Option<Message> {
-        match self.last_message_sent {
-            Some(duration) => match duration.checked_duration_since(Instant::now()) {
-                Some(duration) => {
-                    if duration > Duration::from_secs(120) {
-                        Some(Message::KeepAlive)
-                    } else {
-                        None
-                    }
+        match self.time_last_msg {
+            Some(instant) => {
+                let dur = Instant::now() - instant;
+
+                if dur > Duration::from_secs(120) {
+                    Some(Message::KeepAlive)
+                } else {
+                    None
                 }
-                None => None,
-            },
+            }
             None => Some(Message::Interested),
         }
     }
@@ -136,10 +91,42 @@ impl PeerHandle {
     pub fn send(&mut self, msg: Message) -> Result<()> {
         match self.peer_context.sender.send(msg) {
             Ok(()) => {
-                self.last_message_sent = Some(Instant::now());
+                self.time_last_msg = Some(Instant::now());
                 Ok(())
             }
             Err(err) => Err(TorrusError::new(&err.to_string())),
+        }
+    }
+
+    pub fn select_message(&self) -> Option<Message> {
+        use Message::*;
+
+        let dur = Instant::now() - self.time_last_msg.unwrap_or(Instant::now());
+
+        let peer_bitfield = self
+            .peer_context
+            .get_mutex(|context| context.peer_state.bitfield.clone());
+
+        let msg = self.torrent_context.get_mutex(|context| {
+            for (index, val) in peer_bitfield.iter().enumerate() {
+                if *val {
+                    let block_info = context.pick_piece(&index);
+
+                    return Some(Request(block_info));
+                }
+            }
+            None
+        });
+
+        match msg {
+            Some(msg) => Some(msg),
+            None => {
+                if dur >= Duration::from_secs(120) {
+                    Some(KeepAlive)
+                } else {
+                    Some(Interested)
+                }
+            }
         }
     }
 
