@@ -243,7 +243,7 @@ impl Torrent {
 
     fn get_trackers(context: &Arc<Context>) -> Result<Vec<Tracker>> {
         let trackers = if let Some(url) = &context.metainfo.announce {
-            let tracker = Tracker::from_url_string(&url, Arc::clone(context))?;
+            let tracker = Tracker::from_url_string(url, Arc::clone(context))?;
 
             vec![tracker]
         } else if let Some(al) = &context.metainfo.announce_list {
@@ -275,11 +275,11 @@ impl Torrent {
         for (id, peer) in &self.peers {
             if let Some(msg) = peer.select_message() {
                 log::debug!("\tselect_messages:\t{}", msg);
-                messages.insert(id.clone(), msg);
+                messages.insert(*id, msg);
             }
         }
 
-        if messages.len() == 0 {
+        if messages.is_empty() {
             None
         } else {
             Some(messages)
@@ -289,7 +289,7 @@ impl Torrent {
     fn send_messages(&mut self, messages: HashMap<PeerId, Message>) {
         for (id, msg) in messages {
             if let Some(peer) = self.peers.get_mut(&id) {
-                if let Err(_) = peer.send(msg) {
+                if peer.send(msg).is_err() {
                     let peer = self.peers.remove(&id).unwrap();
                     peer.close();
                 }
@@ -311,7 +311,7 @@ impl Torrent {
             }
             res = listner.accept() => {
                 if let Ok((stream, _)) = res {
-                    let _ =  self.insert_new_peer_stream(stream);
+                    self.insert_new_peer_stream(stream).await?;
                 }
             }
             Some(num_want) = self.need_peers() => {
