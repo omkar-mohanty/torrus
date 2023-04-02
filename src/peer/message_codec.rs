@@ -109,7 +109,7 @@ impl Encoder<Message> for PeerCodec {
                 dst.put_u8(MessageID::Bitfield as u8);
                 dst.extend_from_slice(bitfield.as_raw_slice());
             }
-            Request(block_info)  => {
+            Request(block_info) => {
                 dst.put_u32(13);
                 dst.put_u8(MessageID::Request as u8);
                 dst.put_u32(block_info.piece_index as u32);
@@ -192,7 +192,7 @@ impl Decoder for PeerCodec {
                     begin,
                     length,
                 };
-                Message::Request(block_info) 
+                Message::Request(block_info)
             }
             MessageID::Piece => {
                 // 9 bytes is fixed in all 'Piece' messages the actual paylod length is always
@@ -209,7 +209,7 @@ impl Decoder for PeerCodec {
                 let block_info = BlockInfo {
                     piece_index: index,
                     begin,
-                    length: len - 9
+                    length: len - 9,
                 };
                 let block = Block::new(block_info, data);
                 Message::Piece(block)
@@ -237,10 +237,10 @@ impl Decoder for PeerCodec {
 
 #[cfg(test)]
 mod tests {
-    const BLOCK_INFO:BlockInfo =  BlockInfo{
-        piece_index:12,
+    const BLOCK_INFO: BlockInfo = BlockInfo {
+        piece_index: 12,
         length: 12,
-        begin:12
+        begin: 12,
     };
     use super::*;
     use crate::{block::BLOCK_SIZE, Result};
@@ -255,7 +255,7 @@ mod tests {
             3 => Message::Interested,
             4 => Message::NotInterested,
             5 => Message::Have(12),
-            6 => Message::Request(BLOCK_INFO) ,
+            6 => Message::Request(BLOCK_INFO),
             7 => Message::Cancel {
                 index: 12,
                 begin: 12,
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_incorrect_block_size() {
-        let block_info = BlockInfo::new(12, 12) ;
+        let block_info = BlockInfo::new(12, 12);
 
         let data_len = BLOCK_SIZE + 1;
         let mut data = Vec::new();
