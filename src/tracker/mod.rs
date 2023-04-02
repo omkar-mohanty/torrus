@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::time::Interval;
+use tokio::time::Instant;
 use url::{form_urlencoded::byte_serialize, Url};
 
 use connection::{from_url, Query};
@@ -39,7 +39,9 @@ pub struct Tracker {
     /// Tracker ID
     tracker_id: Option<ByteBuf>,
     /// Last time a request was sent
-    interval: Option<Interval>,
+    last_message_instant: Option<Instant>,
+    /// Minimum interval before sending another announce
+    min_interval: u64,
 }
 
 unsafe impl Send for Tracker {}
@@ -53,7 +55,8 @@ impl Tracker {
             url,
             torrent,
             tracker_id: None,
-            interval: None,
+            last_message_instant: None,
+            min_interval: 0,
         }
     }
 
@@ -72,8 +75,13 @@ impl Tracker {
         num_want: i32,
         port: u16,
     ) -> crate::Result<TrackerResponse> {
-        if let Some(interval) = self.interval.as_mut() {
-            interval.tick().await;
+        if let Some(interval) = self.last_message_instant {
+            log::debug!("\ttracker::announce\t:\tsleeping");
+            let passed = Instant::now() - interval;
+            let wait_dur = Duration::from_secs(self.min_interval);
+            if passed < wait_dur {
+                tokio::time::sleep(wait_dur).await;
+            }
         }
 
         let info_hash = self.torrent.hash();
@@ -97,8 +105,8 @@ impl Tracker {
         self.alive = TrackerState::Alive;
 
         if let Some(interval) = response.min_interval {
-            let duration = Duration::from_secs(interval);
-            self.interval = Some(tokio::time::interval(duration));
+            self.min_interval = interval;
+            self.last_message_instant = Some(Instant::now());
         }
 
         Ok(response)
