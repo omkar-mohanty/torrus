@@ -233,7 +233,20 @@ impl Torrent {
 
             log::debug!("\tstart : Handshake successful with Peer");
 
-            let handle = new_peer(stream, Arc::clone(&self.context), id);
+            let mut handle = new_peer(stream, Arc::clone(&self.context), id);
+
+            macro_rules! msg_send {
+            ($($msg:expr),*) => {
+                $(
+                    if handle.send($msg).is_err() {
+                        return;
+                    }
+                    log::debug!("\tget_peer_streams:\tMessage sent:\t{}",$msg);
+                )*
+            };
+        }
+
+            msg_send!(Message::KeepAlive, Message::Interested, Message::Unchoke);
 
             self.peers.insert(id, handle);
         }
@@ -351,9 +364,7 @@ async fn connect_to_peer(
 
     let stream = match timeout(timeout_dur, fut).await {
         Ok(stream) => stream?,
-        Err(_) => {
-            return err!("Could not connect to peer within 10 seconds")
-        }
+        Err(_) => return err!("Could not connect to peer within 10 seconds"),
     };
 
     log::debug!("\tconnect_to_peer : successful");
