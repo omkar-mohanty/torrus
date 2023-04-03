@@ -233,20 +233,7 @@ impl Torrent {
 
             log::debug!("\tstart : Handshake successful with Peer");
 
-            let mut handle = new_peer(stream, Arc::clone(&self.context), id);
-
-            macro_rules! msg_send {
-            ($($msg:expr),*) => {
-                $(
-                    if handle.send($msg).is_err() {
-                        return;
-                    }
-                    log::debug!("\tget_peer_streams:\tMessage sent:\t{}",$msg);
-                )*
-            };
-        }
-
-            msg_send!(Message::KeepAlive, Message::Interested, Message::Unchoke);
+            let handle = new_peer(stream, Arc::clone(&self.context), id);
 
             self.peers.insert(id, handle);
         }
