@@ -69,24 +69,6 @@ impl PeerHandle {
         }
     }
 
-    /// Check if any last message was sent. If no message was sent at all then send
-    /// [`Message::KeepAlive`]. If last message was sent more than 120 seconds ago send
-    /// [`Message::KeepAlive`] else [`None`].
-    pub fn check_duration(&self) -> Option<Message> {
-        match self.time_last_msg {
-            Some(instant) => {
-                let dur = Instant::now() - instant;
-
-                if dur > Duration::from_secs(120) {
-                    Some(Message::KeepAlive)
-                } else {
-                    None
-                }
-            }
-            None => Some(Message::Interested),
-        }
-    }
-
     /// Send messages to the remote Peer
     pub fn send(&mut self, msg: Message) -> Result<()> {
         match self.peer_context.sender.send(msg) {
