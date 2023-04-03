@@ -418,6 +418,12 @@ impl TrackerRequestBuilder {
     }
 }
 
+impl Default for TrackerRequestBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
