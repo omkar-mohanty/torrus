@@ -162,7 +162,7 @@ impl QueryBuilder {
 }
 
 /// Build query string
-fn build_query_map<'a>(request: TrackerRequest) -> HashMap<String, String> {
+fn build_query_map(request: TrackerRequest) -> HashMap<String, String> {
     // Serealize info_hash to percent encoding
     let info_hash_str: String = byte_serialize(&request.info_hash).collect();
 
