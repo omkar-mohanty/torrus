@@ -167,7 +167,7 @@ async fn handle_receiver(
                         peer_context.set_bitfield(bitfield);
                     }
                     false => {
-                        let _ = peer_context.set_connection_status(ConnectionStatus::Disconnected);
+                        peer_context.set_connection_status(ConnectionStatus::Disconnected);
                         peer_context.close_session();
                         return Err(TorrusError::new(&format!(
                             "Got Bitfield of length {}",

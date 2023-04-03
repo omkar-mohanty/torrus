@@ -51,6 +51,12 @@ impl ClientState {
     }
 }
 
+impl Default for ClientState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum ChokeStatus {
     Choked,
