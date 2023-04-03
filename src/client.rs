@@ -117,3 +117,9 @@ impl Client {
         torrent.send(command)
     }
 }
+
+impl Default for Client {
+    fn default() -> Self {
+        Client::new() 
+    }
+}
