@@ -8,6 +8,13 @@ pub struct TorrusError(String);
 
 type Result<'a, T> = std::result::Result<T, &'a str>;
 
+#[macro_export]
+macro_rules! err {
+    ($msg:expr) => {
+        Err(TorrusError::new($msg))
+    };
+}
+
 impl Error for TorrusError {}
 
 impl TorrusError {
