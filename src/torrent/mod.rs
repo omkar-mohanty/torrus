@@ -14,8 +14,8 @@ use crate::message::{Handshake, Message};
 use crate::peer::{message_codec::HandShakeCodec, new_peer, PeerHandle};
 use crate::storage::TorrentFile;
 use crate::tracker::Tracker;
+use crate::{err, Hash, PeerAddr, PeerId, Result};
 use crate::{metainfo::Metainfo, piece::PieceHandler};
-use crate::{Hash, PeerAddr, PeerId, Result};
 
 type RwFiles = Vec<RwLock<TorrentFile>>;
 
@@ -176,9 +176,7 @@ impl Torrent {
 
                 Ok(())
             }
-            Err(_) => Err(TorrusError::new(
-                "Remote Peer could not send handshake in time",
-            )),
+            Err(_) => err!("Remote peer could not connect in time"),
         }
     }
 
@@ -354,9 +352,7 @@ async fn connect_to_peer(
     let stream = match timeout(timeout_dur, fut).await {
         Ok(stream) => stream?,
         Err(_) => {
-            return Err(TorrusError::new(
-                "Could not connect to Peer within 10 seconds",
-            ))
+            return err!("Could not connect to peer within 10 seconds")
         }
     };
 
@@ -370,16 +366,14 @@ async fn connect_to_peer(
     let fut = framed.send(handshake);
 
     if timeout(timeout_dur, fut).await.is_err() {
-        return Err(TorrusError::new("Could not send handshake in 10 seconds"));
+        return err!("Could not send handshake within 10 seconds");
     }
 
     let fut = handshake_timeout(framed);
 
     match timeout(timeout_dur, fut).await {
         Ok(res) => Ok(res?),
-        Err(_) => Err(TorrusError::new(
-            "Could not get Handshake within 10 seconds",
-        )),
+        Err(_) => err!("Could not get handshake within 10 seconds"),
     }
 }
 
