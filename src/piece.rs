@@ -167,7 +167,7 @@ impl PieceHandler {
         let mut piece_offset = 0;
 
         for (piece_index, offset) in pieces_range.zip(hash_range) {
-            let mut piece_info = PieceInfo::default();
+            let mut piece_info= PieceInfo::default();
 
             piece_info.len = piece_length as usize;
             piece_info.hash = pieces_hash[offset..(offset + 20)].to_vec();
