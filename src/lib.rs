@@ -15,13 +15,22 @@ pub struct TableOfContents {
 }
 
 impl TableOfContents {
+    /// Add torrent to the Table Of contents 
+    ///
+    /// Also keep another copy of the torrent file in [DEFAULT_INFOHASH_PATHS] incase the original one gets deleted
     pub fn add_torrent(&mut self, info_file_path: PathBuf) -> Result<()> {
         use fs::File;
+
+        // Read the contents of the file
         let mut file = File::options().read(true).open(&info_file_path)?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
+
+        // Parse the torrent 
         let torrent = Torrent::new(&buf)?;
         self.torrents.insert(String::from_str("")?, torrent);
+
+        // Store our own copy of the file
         let info_hash_store = PathBuf::from_str(DEFAULT_INFOHASH_PATHS).unwrap().join(info_file_path);
         let mut file = File::options().write(true).open(info_hash_store)?;
         file.write_all(&buf)?;
