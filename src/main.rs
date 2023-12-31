@@ -1,5 +1,7 @@
-use torrus::init;
+use torrus::{error::Result, init};
 
-fn main() {
+fn main() -> Result<()> {
+    init()?;
     println!("Hello, world!");
+    Ok(())
 }

@@ -1,39 +1,29 @@
 use error::Result;
-use once_cell::sync::OnceCell;
-use std::{collections::HashMap, io::{Read, Write}, path::PathBuf, str::FromStr, sync::Mutex, fs};
-use torrent::Torrent;
+use std::{collections::HashMap, fs, path::PathBuf, str::FromStr, sync::RwLock};
+use torrent::Metainfo;
 
-mod error;
+pub mod client;
+pub mod error;
 mod torrent;
 
-pub static GLOBAL_STATE: OnceCell<Mutex<TableOfContents>> = OnceCell::new();
 const DEFAULT_INFOHASH_PATHS: &'static str = "./torrents";
 
 /// Global state of the app
-pub struct TableOfContents {
-    torrents: HashMap<String, Torrent>,
+struct TableOfContents {
+    torrents: HashMap<String, Metainfo>,
 }
 
 impl TableOfContents {
-    /// Add torrent to the Table Of contents 
+    /// Add torrent to the Table Of contents.
     ///
-    /// Also keep another copy of the torrent file in [DEFAULT_INFOHASH_PATHS] incase the original one gets deleted
-    pub fn add_torrent(&mut self, info_file_path: PathBuf) -> Result<()> {
-        use fs::File;
-
-        // Read the contents of the file
-        let mut file = File::options().read(true).open(&info_file_path)?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
-
-        // Parse the torrent 
-        let torrent = Torrent::new(&buf)?;
-        self.torrents.insert(String::from_str("")?, torrent);
-
-        // Store our own copy of the file
-        let info_hash_store = PathBuf::from_str(DEFAULT_INFOHASH_PATHS).unwrap().join(info_file_path);
-        let mut file = File::options().write(true).open(info_hash_store)?;
-        file.write_all(&buf)?;
+    /// Also keep another copy of the .torrent file in [DEFAULT_INFOHASH_PATHS] incase the original one gets deleted.
+    ///
+    /// This method does not check if the file path exists. It's the responsibility of the caller
+    /// to do so.
+    pub fn add_torrent(&mut self, data: &[u8]) -> Result<()> {
+        // Parse the torrent
+        let torrent = Metainfo::new(data)?;
+        self.torrents.insert(torrent.info.name.clone(), torrent);
         Ok(())
     }
 }
@@ -46,6 +36,10 @@ impl Default for TableOfContents {
     }
 }
 
+/// Initialize the [TableOfContents]. Check the [DEFAULT_INFOHASH_PATHS] if it has .torrent files
+/// if it does add it to the TOC.
+///
+/// If the [DEFAULT_INFOHASH_PATHS] does not exist create the directory
 pub fn init() -> Result<()> {
     let mut toc = TableOfContents::default();
     let info_hash_path = PathBuf::from_str(DEFAULT_INFOHASH_PATHS).unwrap();
@@ -56,13 +50,12 @@ pub fn init() -> Result<()> {
             let entry = entry?;
             let metadata = &entry.metadata()?;
             if metadata.is_file() {
-                toc.add_torrent(entry.path())?;
+                let data = fs::read(entry.path())?;
+                toc.add_torrent(&data)?;
             }
         }
     } else {
         fs::create_dir(DEFAULT_INFOHASH_PATHS).unwrap();
     }
-
-    GLOBAL_STATE.get_or_init(|| Mutex::new(toc));
     Ok(())
 }

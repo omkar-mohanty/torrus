@@ -39,43 +39,43 @@ pub struct Info {
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
-pub struct Torrent {
-    info: Info,
+pub struct Metainfo {
+    pub info: Info,
     #[serde(default)]
-    announce: Option<String>,
+    pub announce: Option<String>,
     #[serde(default)]
-    nodes: Option<Vec<Node>>,
+    pub nodes: Option<Vec<Node>>,
     #[serde(default)]
-    encoding: Option<String>,
+    pub encoding: Option<String>,
     #[serde(default)]
-    httpseeds: Option<Vec<String>>,
+    pub httpseeds: Option<Vec<String>>,
     #[serde(default)]
     #[serde(rename = "announce-list")]
-    announce_list: Option<Vec<Vec<String>>>,
+    pub announce_list: Option<Vec<Vec<String>>>,
     #[serde(default)]
     #[serde(rename = "creation date")]
-    creation_date: Option<i64>,
+    pub creation_date: Option<i64>,
     #[serde(rename = "comment")]
-    comment: Option<String>,
+    pub comment: Option<String>,
     #[serde(default)]
     #[serde(rename = "created by")]
-    created_by: Option<String>,
+    pub created_by: Option<String>,
 }
 
-impl Torrent {
+impl Metainfo {
     pub fn new(data: &[u8]) -> Result<Self> {
-        Ok(serde_bencode::de::from_bytes::<Torrent>(data)?)
+        Ok(serde_bencode::de::from_bytes::<Metainfo>(data)?)
     }
 }
 
-impl Display for Torrent {
+impl Display for Metainfo {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         render_torrent(self);
         Ok(())
     }
 }
 
-fn render_torrent(torrent: &Torrent) {
+fn render_torrent(torrent: &Metainfo) {
     println!("name:\t\t{}", torrent.info.name);
     println!("announce:\t{:?}", torrent.announce);
     println!("nodes:\t\t{:?}", torrent.nodes);
