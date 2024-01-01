@@ -102,3 +102,19 @@ fn render_torrent(torrent: &Metainfo) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Result;
+    #[test]
+    fn test_decode() -> Result<()> {
+        use std::fs;
+
+        for entry in fs::read_dir("./resources")? {
+            let data = fs::read(entry?.path())?;
+            Metainfo::new(&data)?;
+        }
+        Ok(())
+    }
+}
