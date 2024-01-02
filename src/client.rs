@@ -9,6 +9,7 @@ use std::{
     str::FromStr,
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+use uuid::Uuid;
 
 /// Directory for storing .torrent files.
 ///
@@ -67,7 +68,8 @@ impl Client for LockedClient<TorrentClient> {
 
     fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err> {
         let data = fs::read(torrent_file)?;
-        self.write().toc.add_torrent(&data).unwrap();
+        let id = Uuid::new_v4();
+        self.write().toc.add_torrent(&data, id).unwrap();
         Ok(())
     }
 
