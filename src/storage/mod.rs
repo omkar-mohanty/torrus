@@ -1,5 +1,4 @@
-use block::{Block, Blockinfo};
-use piece::{Piece, PieceInfo};
+ pub use block::{Block, Blockinfo};
 
 mod block;
 mod disk;

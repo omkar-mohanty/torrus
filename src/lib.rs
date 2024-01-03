@@ -9,4 +9,4 @@ mod toc;
 mod torrent;
 
 pub use client::init;
-pub use toc::TableOfContents;
+pub(crate) use toc::TableOfContents;
