@@ -1,4 +1,7 @@
-use crate::TableOfContents;
+use crate::{
+    torrent::{Engine, DEFAULT_ENGINE},
+    TableOfContents,
+};
 use async_trait::async_trait;
 use once_cell::sync::OnceCell;
 use serde_derive::{Deserialize, Serialize};
@@ -7,7 +10,7 @@ use std::{
     path::PathBuf,
     result::Result,
     str::FromStr,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 use uuid::Uuid;
 
@@ -24,7 +27,8 @@ const DOWNLOAD_DIR: &str = "./downloads";
 pub(crate) static DEFAULT_CLIENT: OnceCell<LockedClient<TorrentClient>> = OnceCell::new();
 
 pub fn init() -> crate::Result<()> {
-    DEFAULT_CLIENT.get_or_init(|| LockedClient::new(TorrentClient::new()));
+    DEFAULT_CLIENT
+        .get_or_init(|| LockedClient::new(TorrentClient::new(&DEFAULT_ENGINE)));
     DEFAULT_CLIENT.get().unwrap().init()?;
     Ok(())
 }
@@ -51,13 +55,15 @@ impl<T> LockedClient<T> {
 pub(crate) struct TorrentClient {
     config: Config,
     toc: TableOfContents,
+    engine: Arc<dyn Engine>,
 }
 
 impl TorrentClient {
-    pub fn new() -> Self {
+    pub fn new(engine: &Arc<dyn Engine>) -> Self {
         Self {
             config: Config::default(),
             toc: TableOfContents::default(),
+            engine: Arc::clone(engine),
         }
     }
 }
@@ -136,6 +142,22 @@ mod tests {
     const DEFAULT_RESOURCES: &str = "./resources";
     const TEST_DOWNLOAD_DIR: &str = "./tests";
     const TEST_APP_DIR: &str = "./app_dir";
+    static TEST_ENGINE: Arc<dyn Engine> = Arc::new(TestEngine);
+
+    struct TestEngine;
+
+    #[async_trait::async_trait]
+    impl Engine for TestEngine {
+        fn add_torrent(&self, _:Metainfo) {
+            todo!()
+        }
+
+        async fn run(&self) {
+            todo!()
+        }
+    }
+
+    use crate::torrent::Metainfo;
 
     use super::*;
 
@@ -148,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_client() -> crate::Result<()> {
-        let client = LockedClient::new(TorrentClient::new());
+        let client = LockedClient::new(TorrentClient::new(&TEST_ENGINE));
 
         for entry in fs::read_dir(DEFAULT_RESOURCES)? {
             let entry = entry?;
@@ -161,7 +183,7 @@ mod tests {
     fn test_config() -> crate::Result<()> {
         let config = get_test_config();
 
-        let client = LockedClient::new(TorrentClient::new());
+        let client = LockedClient::new(TorrentClient::new(&TEST_ENGINE));
         client.set_config(config);
         client.init()?;
 

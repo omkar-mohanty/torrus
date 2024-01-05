@@ -1,7 +1,7 @@
+use super::Piece;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
-use super::Piece;
 
 pub struct PieceManager {
     byte_range: Range<u64>,

@@ -1,7 +1,6 @@
+use super::piece::PieceManager;
 use std::collections::HashMap;
 use uuid::Uuid;
-use super::piece::PieceManager;
-
 
 /// Responsible for writing data to the disk.
 ///
@@ -13,4 +12,3 @@ use super::piece::PieceManager;
 pub struct TorrentStorage {
     managers: HashMap<Uuid, PieceManager>,
 }
-

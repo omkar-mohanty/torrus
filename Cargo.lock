@@ -215,6 +215,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
 
 [[package]]
+name = "llcache"
+version = "0.1.0"
+
+[[package]]
 name = "lock_api"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -363,6 +367,10 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
 ]
+
+[[package]]
+name = "rbtree-rs"
+version = "0.1.0"
 
 [[package]]
 name = "redox_syscall"
@@ -560,6 +568,7 @@ dependencies = [
  "env_logger",
  "log",
  "once_cell",
+ "rbtree-rs",
  "serde",
  "serde_bencode",
  "serde_bytes",

@@ -1,4 +1,4 @@
- pub use block::{Block, Blockinfo};
+pub use block::{Block, Blockinfo};
 
 mod block;
 mod disk;
