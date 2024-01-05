@@ -1,10 +1,20 @@
+use url::Url;
+
+struct HttpTracker {
+    url: Url,
+}
+
+struct UdpTracker {
+    url: Url,
+}
+
 pub enum Tracker {
-    Http(String),
-    Udp(String),
+    Http(HttpTracker),
+    Udp(UdpTracker),
 }
 
 impl Tracker {
-    fn new(url: String) -> Self {
+    pub fn new(url: String) -> Self {
         todo!()
     }
 }
