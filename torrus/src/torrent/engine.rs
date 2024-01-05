@@ -47,7 +47,11 @@ impl ClientEngine {
     }
 
     fn add_torrent(&mut self, id: Uuid, metainfo: Metainfo) {
-        self.torrents.insert(id, metainfo).unwrap();
+        log::debug!("ID : {id}, Torrent : {metainfo}");
+        match self.torrents.insert(id, metainfo) {
+            Some(_val) => log::info!("Trying to add an existing torrent!"),
+            None => log::info!("Successfully added torrent")
+        };
     }
 }
 

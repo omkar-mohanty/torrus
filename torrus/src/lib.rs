@@ -8,5 +8,5 @@ mod storage;
 mod toc;
 mod torrent;
 
-pub use client::init;
 pub(crate) use toc::TableOfContents;
+pub use torrent::default_engine;

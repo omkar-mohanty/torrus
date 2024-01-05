@@ -1,7 +1,7 @@
 use crate::error::Result;
 use serde_bytes::ByteBuf;
 use serde_derive::Deserialize;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);
@@ -69,37 +69,33 @@ impl Metainfo {
 }
 
 impl Display for Metainfo {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        render_torrent(self);
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("name:\t\t{}\n", self.info.name))?;
+        f.write_fmt(format_args!("announce:\t\t{:?}\n", self.announce))?;
+        f.write_fmt(format_args!("nodes:\t\t{:?}\n", self.nodes))?;
+        if let Some(al) = &self.announce_list {
+            for a in al {
+                f.write_fmt(format_args!("announce list:\t{}\n", a[0]))?;
+            }
+        }
+        f.write_fmt(format_args!("httpsseeds:\t{:?}\n", self.httpseeds))?;
+        f.write_fmt(format_args!("creation date:\t{:?}\n", self.creation_date))?;
+        f.write_fmt(format_args!("comment:\t{:?}\n", self.comment))?;
+        f.write_fmt(format_args!("created by:\t{:?}\n", self.created_by))?;
+        f.write_fmt(format_args!("encoding:\t{:?}\n", self.encoding))?;
+        f.write_fmt(format_args!("piece length:\t{:?}\n", self.info.piece_length))?;
+        f.write_fmt(format_args!("private:\t{:?}\n", self.info.private))?;
+        f.write_fmt(format_args!("root hash:\t{:?}\n", self.info.root_hash))?;
+        f.write_fmt(format_args!("md5sum:\t\t{:?}\n", self.info.md5sum))?;
+        f.write_fmt(format_args!("path:\t\t{:?}\n", self.info.path))?;
+        if let Some(files) = &self.info.files {
+            for file in files {
+               f.write_fmt(format_args!("file path:\t{:?}\n", file.path))?; 
+               f.write_fmt(format_args!("file path:\t{:?}\n", file.length))?; 
+               f.write_fmt(format_args!("file path:\t{:?}\n", file.md5sum))?; 
+            }
+        }
         Ok(())
-    }
-}
-
-fn render_torrent(torrent: &Metainfo) {
-    println!("name:\t\t{}", torrent.info.name);
-    println!("announce:\t{:?}", torrent.announce);
-    println!("nodes:\t\t{:?}", torrent.nodes);
-    if let Some(al) = &torrent.announce_list {
-        for a in al {
-            println!("announce list:\t{}", a[0]);
-        }
-    }
-    println!("httpseeds:\t{:?}", torrent.httpseeds);
-    println!("creation date:\t{:?}", torrent.creation_date);
-    println!("comment:\t{:?}", torrent.comment);
-    println!("created by:\t{:?}", torrent.created_by);
-    println!("encoding:\t{:?}", torrent.encoding);
-    println!("piece length:\t{:?}", torrent.info.piece_length);
-    println!("private:\t{:?}", torrent.info.private);
-    println!("root hash:\t{:?}", torrent.info.root_hash);
-    println!("md5sum:\t\t{:?}", torrent.info.md5sum);
-    println!("path:\t\t{:?}", torrent.info.path);
-    if let Some(files) = &torrent.info.files {
-        for f in files {
-            println!("file path:\t{:?}", f.path);
-            println!("file length:\t{}", f.length);
-            println!("file md5sum:\t{:?}", f.md5sum);
-        }
     }
 }
 

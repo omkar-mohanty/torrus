@@ -1,9 +1,9 @@
 use crate::{
-    torrent::{default_engine, Engine, Metainfo},
+    default_engine,
+    torrent::{Engine, Metainfo},
     TableOfContents,
 };
 use async_trait::async_trait;
-use once_cell::sync::OnceCell;
 use serde_derive::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, result::Result, str::FromStr, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -18,13 +18,8 @@ const APP_DIR: &str = "./torrents";
 /// Default directory where all downloaded files will be stored. can be overwritten via [Config]
 const DOWNLOAD_DIR: &str = "./downloads";
 
-/// Default implementation of a thread safe client [Client]
-pub(crate) static DEFAULT_CLIENT: OnceCell<LockedClient<TorrentClient>> = OnceCell::new();
-
-pub async fn init() -> crate::Result<()> {
-    DEFAULT_CLIENT.get_or_init(|| LockedClient::new(TorrentClient::new(default_engine())));
-    DEFAULT_CLIENT.get().unwrap().init().await?;
-    Ok(())
+pub fn default_client() -> impl Client {
+    LockedClient::new(TorrentClient::new(default_engine()))
 }
 
 /// My interpretation of a client.
@@ -47,7 +42,7 @@ impl<T> LockedClient<T> {
 }
 
 pub(crate) struct TorrentClient {
-    config: Config,
+    config: ClientConfig,
     toc: TableOfContents,
     engine: Arc<dyn Engine>,
 }
@@ -55,7 +50,7 @@ pub(crate) struct TorrentClient {
 impl TorrentClient {
     pub fn new(engine: impl Engine + 'static) -> Self {
         Self {
-            config: Config::default(),
+            config: ClientConfig::default(),
             toc: TableOfContents::default(),
             engine: Arc::new(engine),
         }
@@ -93,22 +88,24 @@ impl Client for LockedClient<TorrentClient> {
         Ok(())
     }
 
-    async fn set_config(&self, config: Config) {
+    async fn set_config(&self, config: ClientConfig) -> Result<(), Self::Err> {
         self.write().await.config = config;
+        self.init().await?;
+        Ok(())
     }
 
-    async fn get_config(&self) -> Config {
+    async fn get_config(&self) -> ClientConfig {
         self.read().await.config.clone()
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Config {
+pub struct ClientConfig {
     download_dir: PathBuf,
     app_dir: PathBuf,
 }
 
-impl Default for Config {
+impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             download_dir: PathBuf::from_str(DOWNLOAD_DIR).unwrap(),
@@ -126,8 +123,8 @@ pub trait Client: Send + Sync {
     /// Run the underlying [Engine] and drive the state machine forward.
     async fn run(&self) -> Result<(), Self::Err>;
 
-    async fn get_config(&self) -> Config;
-    async fn set_config(&self, config: Config);
+    async fn get_config(&self) -> ClientConfig;
+    async fn set_config(&self, config: ClientConfig) -> Result<(), Self::Err>;
 
     /// Read the torrent file to the end and parse it. May or may not check the file validity or
     /// existence.
@@ -143,8 +140,8 @@ mod tests {
 
     use super::*;
 
-    fn get_test_config() -> Config {
-        Config {
+    fn get_test_config() -> ClientConfig {
+        ClientConfig {
             download_dir: PathBuf::from_str(TEST_DOWNLOAD_DIR).unwrap(),
             app_dir: PathBuf::from_str(TEST_APP_DIR).unwrap(),
         }
@@ -167,7 +164,7 @@ mod tests {
         let config = get_test_config();
         let test_engine = TestEngine::new();
         let client = LockedClient::new(TorrentClient::new(test_engine));
-        client.set_config(config);
+        client.set_config(config).await?;
         client.init().await?;
 
         if !fs::metadata(TEST_APP_DIR).unwrap().is_dir() {
