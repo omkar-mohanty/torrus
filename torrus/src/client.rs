@@ -1,17 +1,12 @@
 use crate::{
-    torrent::{Engine, DEFAULT_ENGINE},
+    torrent::{default_engine, Engine, Metainfo},
     TableOfContents,
 };
 use async_trait::async_trait;
 use once_cell::sync::OnceCell;
 use serde_derive::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::PathBuf,
-    result::Result,
-    str::FromStr,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
+use std::{fs, path::PathBuf, result::Result, str::FromStr, sync::Arc};
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 /// Directory for storing .torrent files.
@@ -26,10 +21,9 @@ const DOWNLOAD_DIR: &str = "./downloads";
 /// Default implementation of a thread safe client [Client]
 pub(crate) static DEFAULT_CLIENT: OnceCell<LockedClient<TorrentClient>> = OnceCell::new();
 
-pub fn init() -> crate::Result<()> {
-    DEFAULT_CLIENT
-        .get_or_init(|| LockedClient::new(TorrentClient::new(&DEFAULT_ENGINE)));
-    DEFAULT_CLIENT.get().unwrap().init()?;
+pub async fn init() -> crate::Result<()> {
+    DEFAULT_CLIENT.get_or_init(|| LockedClient::new(TorrentClient::new(default_engine())));
+    DEFAULT_CLIENT.get().unwrap().init().await?;
     Ok(())
 }
 
@@ -43,12 +37,12 @@ impl<T> LockedClient<T> {
         LockedClient(RwLock::new(inner))
     }
 
-    pub fn read(&self) -> RwLockReadGuard<T> {
-        self.0.read().unwrap()
+    pub async fn read(&self) -> RwLockReadGuard<T> {
+        self.0.read().await
     }
 
-    pub fn write(&self) -> RwLockWriteGuard<T> {
-        self.0.write().unwrap()
+    pub async fn write(&self) -> RwLockWriteGuard<T> {
+        self.0.write().await
     }
 }
 
@@ -59,11 +53,11 @@ pub(crate) struct TorrentClient {
 }
 
 impl TorrentClient {
-    pub fn new(engine: &Arc<dyn Engine>) -> Self {
+    pub fn new(engine: impl Engine + 'static) -> Self {
         Self {
             config: Config::default(),
             toc: TableOfContents::default(),
-            engine: Arc::clone(engine),
+            engine: Arc::new(engine),
         }
     }
 }
@@ -72,10 +66,13 @@ impl TorrentClient {
 impl Client for LockedClient<TorrentClient> {
     type Err = crate::error::TorrErr;
 
-    fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err> {
+    async fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err> {
         let data = fs::read(torrent_file)?;
         let id = Uuid::new_v4();
-        self.write().toc.add_torrent(&data, id).unwrap();
+        let mut client_write = self.write().await;
+        client_write.toc.add_torrent(id, &data).unwrap();
+        let metinfo = Metainfo::new(&data).unwrap();
+        client_write.engine.add_torrent(id, metinfo).await;
         Ok(())
     }
 
@@ -83,8 +80,8 @@ impl Client for LockedClient<TorrentClient> {
         todo!()
     }
 
-    fn init(&self) -> Result<(), Self::Err> {
-        let config = self.get_config();
+    async fn init(&self) -> Result<(), Self::Err> {
+        let config = self.get_config().await;
 
         if !config.app_dir.exists() {
             std::fs::create_dir(config.app_dir).unwrap();
@@ -96,12 +93,12 @@ impl Client for LockedClient<TorrentClient> {
         Ok(())
     }
 
-    fn set_config(&self, config: Config) {
-        self.write().config = config;
+    async fn set_config(&self, config: Config) {
+        self.write().await.config = config;
     }
 
-    fn get_config(&self) -> Config {
-        self.read().config.clone()
+    async fn get_config(&self) -> Config {
+        self.read().await.config.clone()
     }
 }
 
@@ -124,17 +121,17 @@ impl Default for Config {
 pub trait Client: Send + Sync {
     type Err: std::error::Error;
 
-    fn init(&self) -> Result<(), Self::Err>;
+    async fn init(&self) -> Result<(), Self::Err>;
 
     /// Run the underlying [Engine] and drive the state machine forward.
     async fn run(&self) -> Result<(), Self::Err>;
 
-    fn get_config(&self) -> Config;
-    fn set_config(&self, config: Config);
+    async fn get_config(&self) -> Config;
+    async fn set_config(&self, config: Config);
 
     /// Read the torrent file to the end and parse it. May or may not check the file validity or
     /// existence.
-    fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err>;
+    async fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err>;
 }
 
 #[cfg(test)]
@@ -142,22 +139,7 @@ mod tests {
     const DEFAULT_RESOURCES: &str = "./resources";
     const TEST_DOWNLOAD_DIR: &str = "./tests";
     const TEST_APP_DIR: &str = "./app_dir";
-    static TEST_ENGINE: Arc<dyn Engine> = Arc::new(TestEngine);
-
-    struct TestEngine;
-
-    #[async_trait::async_trait]
-    impl Engine for TestEngine {
-        fn add_torrent(&self, _:Metainfo) {
-            todo!()
-        }
-
-        async fn run(&self) {
-            todo!()
-        }
-    }
-
-    use crate::torrent::Metainfo;
+    use crate::torrent::engine::tests::TestEngine;
 
     use super::*;
 
@@ -168,24 +150,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_client() -> crate::Result<()> {
-        let client = LockedClient::new(TorrentClient::new(&TEST_ENGINE));
+    #[tokio::test]
+    async fn test_client() -> crate::Result<()> {
+        let test_engine = TestEngine::new();
+        let client = LockedClient::new(TorrentClient::new(test_engine));
 
         for entry in fs::read_dir(DEFAULT_RESOURCES)? {
             let entry = entry?;
-            client.add_torrent(entry.path())?;
+            client.add_torrent(entry.path()).await?;
         }
         Ok(())
     }
 
-    #[test]
-    fn test_config() -> crate::Result<()> {
+    #[tokio::test]
+    async fn test_config() -> crate::Result<()> {
         let config = get_test_config();
-
-        let client = LockedClient::new(TorrentClient::new(&TEST_ENGINE));
+        let test_engine = TestEngine::new();
+        let client = LockedClient::new(TorrentClient::new(test_engine));
         client.set_config(config);
-        client.init()?;
+        client.init().await?;
 
         if !fs::metadata(TEST_APP_DIR).unwrap().is_dir() {
             panic!("APP directory is not a directory")

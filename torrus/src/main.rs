@@ -1,7 +1,8 @@
 use torrus::{error::Result, init};
 
-fn main() -> Result<()> {
-    init()?;
+#[tokio::main]
+async fn main() -> Result<()> {
+    init().await?;
     println!("Hello, world!");
     Ok(())
 }

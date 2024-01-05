@@ -2,6 +2,8 @@ pub mod engine;
 pub mod metainfo;
 pub mod tracker;
 
-pub use engine::{Engine, DEFAULT_ENGINE};
+use tracker::Tracker;
+
+pub use engine::{default_engine, Engine};
 /// Reexports
 pub use metainfo::Metainfo;

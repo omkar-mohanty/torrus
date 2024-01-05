@@ -10,7 +10,7 @@ pub struct TableOfContents {
 
 impl TableOfContents {
     ///Parse the [Metainfo] and add it to the Table Of contents.
-    pub fn add_torrent(&mut self, data: &[u8], id: Uuid) -> Result<()> {
+    pub fn add_torrent(&mut self, id: Uuid, data: &[u8]) -> Result<()> {
         // Parse the torrent
         let torrent = Metainfo::new(data)?;
         self.torrents.insert(id, torrent);
