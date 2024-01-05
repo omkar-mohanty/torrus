@@ -1,7 +1,7 @@
 use crate::error::Result;
 use serde_bytes::ByteBuf;
 use serde_derive::Deserialize;
-use std::{fmt::Display, ops::Range};
+use std::{fmt::Display};
 
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);

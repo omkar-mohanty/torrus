@@ -14,7 +14,7 @@ pub enum Tracker {
 }
 
 impl Tracker {
-    pub fn new(url: String) -> Self {
+    pub fn new(_url: String) -> Self {
         todo!()
     }
 }
