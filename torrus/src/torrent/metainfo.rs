@@ -83,16 +83,19 @@ impl Display for Metainfo {
         f.write_fmt(format_args!("comment:\t{:?}\n", self.comment))?;
         f.write_fmt(format_args!("created by:\t{:?}\n", self.created_by))?;
         f.write_fmt(format_args!("encoding:\t{:?}\n", self.encoding))?;
-        f.write_fmt(format_args!("piece length:\t{:?}\n", self.info.piece_length))?;
+        f.write_fmt(format_args!(
+            "piece length:\t{:?}\n",
+            self.info.piece_length
+        ))?;
         f.write_fmt(format_args!("private:\t{:?}\n", self.info.private))?;
         f.write_fmt(format_args!("root hash:\t{:?}\n", self.info.root_hash))?;
         f.write_fmt(format_args!("md5sum:\t\t{:?}\n", self.info.md5sum))?;
         f.write_fmt(format_args!("path:\t\t{:?}\n", self.info.path))?;
         if let Some(files) = &self.info.files {
             for file in files {
-               f.write_fmt(format_args!("file path:\t{:?}\n", file.path))?; 
-               f.write_fmt(format_args!("file path:\t{:?}\n", file.length))?; 
-               f.write_fmt(format_args!("file path:\t{:?}\n", file.md5sum))?; 
+                f.write_fmt(format_args!("file path:\t{:?}\n", file.path))?;
+                f.write_fmt(format_args!("file path:\t{:?}\n", file.length))?;
+                f.write_fmt(format_args!("file path:\t{:?}\n", file.md5sum))?;
             }
         }
         Ok(())

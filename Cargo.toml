@@ -3,5 +3,5 @@
 members = [
     "torrus",
     "rbtree-rs"
-, "llcache"]
+, "llcache", "torrusd", "torrctl"]
 

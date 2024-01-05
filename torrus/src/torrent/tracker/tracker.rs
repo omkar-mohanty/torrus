@@ -8,7 +8,7 @@ struct HttpTracker {
 
 impl HttpTracker {
     pub fn new(url: Url) -> Self {
-        HttpTracker { url}
+        HttpTracker { url }
     }
 }
 
@@ -17,10 +17,8 @@ struct UdpTracker {
 }
 
 impl UdpTracker {
-    pub fn new(url : Url) -> Self {
-        UdpTracker {
-            url
-        }
+    pub fn new(url: Url) -> Self {
+        UdpTracker { url }
     }
 }
 
@@ -34,13 +32,9 @@ impl Tracker {
         let url = Url::from_str(&url).unwrap();
 
         match url.scheme() {
-            "http" | "https" => {
-                Self::Http(HttpTracker::new(url))
-            },
-            "udp" => {
-                Self::Udp(UdpTracker::new(url))
-            }
-            _ => todo!()
+            "http" | "https" => Self::Http(HttpTracker::new(url)),
+            "udp" => Self::Udp(UdpTracker::new(url)),
+            _ => todo!(),
         }
     }
 }

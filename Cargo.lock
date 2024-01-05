@@ -707,12 +707,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "torrctl"
+version = "0.1.0"
+
+[[package]]
 name = "torrus"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "clap",
- "env_logger",
  "log",
  "once_cell",
  "rbtree-rs",
@@ -724,6 +726,17 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "torrusd"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "tokio",
+ "torrus",
 ]
 
 [[package]]

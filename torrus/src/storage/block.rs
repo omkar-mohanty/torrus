@@ -8,6 +8,11 @@ pub struct Blockinfo {
 
 /// Block is basic unit of all operations in storage module. No modules outside storage should be
 /// aware of anything other than [Block] and TorrentEngine.
+///
+/// Engines and clients must not be aware of how data is actually stored but they need a way to
+/// tell the storage engine about what data to store and for which torrent.
+///
+/// [Block] serves as a way of a data holder between engine and storage.
 pub struct Block {
     pub block_info: Blockinfo,
     data: Vec<u8>,

@@ -1,7 +1,12 @@
 use super::Metainfo;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::{
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 pub fn default_engine() -> impl Engine {
@@ -14,35 +19,59 @@ pub fn default_engine() -> impl Engine {
 /// Handles multiple peers
 /// Informs the client about events.
 #[async_trait]
-pub trait Engine: Send + Sync {
+pub trait Engine: Sync + Send {
     async fn add_torrent(&self, id: Uuid, metainfo: Metainfo);
     async fn run(&self);
+    async fn stop(self);
 }
 
-struct LockedEngine<T>(RwLock<T>);
+struct LockedEngine<T>(Arc<RwLock<T>>);
 
 impl<T> LockedEngine<T> {
-    pub const fn new(inner: T) -> Self {
-        LockedEngine(RwLock::new(inner))
+    pub fn new(inner: T) -> Self {
+        LockedEngine(Arc::new(RwLock::new(inner)))
     }
 
-    pub fn read(&self) -> RwLockReadGuard<T> {
-        self.0.read().unwrap()
+    pub async fn read(&self) -> RwLockReadGuard<T> {
+        self.0.read().await
     }
 
-    pub fn write(&self) -> RwLockWriteGuard<T> {
-        self.0.write().unwrap()
+    pub async fn write(&self) -> RwLockWriteGuard<T> {
+        self.0.write().await
     }
+}
+
+pub enum EngineCommand {
+    AddTorrent(Uuid),
 }
 
 struct ClientEngine {
     torrents: HashMap<Uuid, Metainfo>,
+    join_handle: Option<JoinHandle<()>>,
+    sender: Option<UnboundedSender<EngineCommand>>,
+}
+
+async fn handle_engine_events(
+    engine: Arc<RwLock<ClientEngine>>,
+    receiver: UnboundedReceiver<EngineCommand>,
+) {
+    use EngineCommand::*;
+    let mut receiver = receiver;
+    while let Some(msg) = receiver.recv().await {
+        match msg {
+            AddTorrent(id) => {
+                let metainfo = engine.read().await.torrents.get(&id).unwrap();
+            }
+        }
+    }
 }
 
 impl ClientEngine {
     fn new() -> Self {
         ClientEngine {
             torrents: HashMap::new(),
+            join_handle: None,
+            sender: None,
         }
     }
 
@@ -50,7 +79,7 @@ impl ClientEngine {
         log::debug!("ID : {id}, Torrent : {metainfo}");
         match self.torrents.insert(id, metainfo) {
             Some(_val) => log::info!("Trying to add an existing torrent!"),
-            None => log::info!("Successfully added torrent")
+            None => log::info!("Successfully added torrent"),
         };
     }
 }
@@ -58,11 +87,23 @@ impl ClientEngine {
 #[async_trait]
 impl Engine for LockedEngine<ClientEngine> {
     async fn add_torrent(&self, id: Uuid, metainfo: Metainfo) {
-        self.write().add_torrent(id, metainfo);
+        self.write().await.add_torrent(id, metainfo);
     }
 
     async fn run(&self) {
-        todo!()
+        let client_arc = Arc::clone(&self.0);
+        let (sender, receiver) = unbounded_channel();
+        let join_handle = tokio::task::spawn(async move {
+            handle_engine_events(client_arc, receiver).await;
+        });
+        let mut client_write = self.write().await;
+        client_write.sender = Some(sender);
+        client_write.join_handle = Some(join_handle);
+    }
+
+    async fn stop(self) {
+        let client = self.write().await;
+        client.join_handle.as_ref().unwrap().abort();
     }
 }
 
@@ -82,7 +123,10 @@ pub(crate) mod tests {
         async fn add_torrent(&self, _: Uuid, _: Metainfo) {}
 
         async fn run(&self) {
-            todo!()
+        }
+
+        async fn stop(self) {
+        
         }
     }
 }
