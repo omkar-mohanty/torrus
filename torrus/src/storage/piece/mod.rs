@@ -4,8 +4,7 @@ pub use manager::PieceManager;
 
 use super::{Block, Blockinfo};
 use crate::Result;
-use sha1::{Digest, Sha1};
-use std::{io::prelude::*, io::Cursor, io::SeekFrom, ops::Range};
+use std::{io::prelude::*, io::Cursor, io::SeekFrom};
 
 const BLOCK_SIZE: u64 = 2 << 14;
 
@@ -90,15 +89,6 @@ impl Piece {
 
         return true;
     }
-}
-
-/// TODO check if we need hash of the string representation or is the string the hash itself?
-pub fn get_hash(string: &str, range: Range<usize>) -> Vec<u8> {
-    let hash_str = &string[range];
-    let mut hasher = Sha1::new();
-    hasher.update(hash_str);
-    let result = hasher.finalize();
-    result[..].to_vec()
 }
 
 #[cfg(test)]

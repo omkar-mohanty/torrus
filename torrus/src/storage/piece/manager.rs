@@ -1,3 +1,5 @@
+use crate::torrent::Metainfo;
+
 use super::Piece;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -9,4 +11,10 @@ pub struct PieceManager {
     /// a few in a cache and when a miss occurs get piece from disk.
     cache: HashMap<usize, Piece>,
     download_directory: PathBuf,
+}
+
+impl PieceManager {
+    pub fn new(metainfo: &Metainfo) -> Self {
+        todo!()
+    }
 }

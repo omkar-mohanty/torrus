@@ -1,12 +1,12 @@
 use crate::{
     default_engine,
+    engine::EngineCommand,
     torrent::{Engine, Metainfo},
-    TableOfContents,
+    Locked, TableOfContents,
 };
 use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, result::Result, str::FromStr, sync::Arc};
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 /// Directory for storing .torrent files.
@@ -19,26 +19,7 @@ const APP_DIR: &str = "./torrents";
 const DOWNLOAD_DIR: &str = "./downloads";
 
 pub fn default_client() -> impl Client {
-    LockedClient::new(TorrentClient::new(default_engine()))
-}
-
-/// My interpretation of a client.
-///
-/// It's not perfect.
-pub struct LockedClient<T>(RwLock<T>);
-
-impl<T> LockedClient<T> {
-    pub fn new(inner: T) -> Self {
-        LockedClient(RwLock::new(inner))
-    }
-
-    pub async fn read(&self) -> RwLockReadGuard<T> {
-        self.0.read().await
-    }
-
-    pub async fn write(&self) -> RwLockWriteGuard<T> {
-        self.0.write().await
-    }
+    Locked::new(TorrentClient::new(default_engine()))
 }
 
 pub(crate) struct TorrentClient {
@@ -58,7 +39,7 @@ impl TorrentClient {
 }
 
 #[async_trait]
-impl Client for LockedClient<TorrentClient> {
+impl Client for Locked<TorrentClient> {
     type Err = crate::error::TorrErr;
 
     async fn add_torrent(&self, torrent_file: PathBuf) -> Result<(), Self::Err> {
@@ -67,12 +48,18 @@ impl Client for LockedClient<TorrentClient> {
         let mut client_write = self.write().await;
         client_write.toc.add_torrent(id, &data).unwrap();
         let metinfo = Metainfo::new(&data).unwrap();
-        client_write.engine.add_torrent(id, metinfo).await;
+        log::info!("Adding torrent");
+        println!("Here ");
+        client_write
+            .engine
+            .send_command(EngineCommand::AddTorrent(id, metinfo))
+            .await;
         Ok(())
     }
 
     async fn run(&self) -> Result<(), Self::Err> {
-        todo!()
+        self.write().await.engine.run().await;
+        Ok(())
     }
 
     async fn init(&self) -> Result<(), Self::Err> {
@@ -150,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn test_client() -> crate::Result<()> {
         let test_engine = TestEngine::new();
-        let client = LockedClient::new(TorrentClient::new(test_engine));
+        let client = Locked::new(TorrentClient::new(test_engine));
 
         for entry in fs::read_dir(DEFAULT_RESOURCES)? {
             let entry = entry?;
@@ -163,7 +150,7 @@ mod tests {
     async fn test_config() -> crate::Result<()> {
         let config = get_test_config();
         let test_engine = TestEngine::new();
-        let client = LockedClient::new(TorrentClient::new(test_engine));
+        let client = Locked::new(TorrentClient::new(test_engine));
         client.set_config(config).await?;
         client.init().await?;
 
