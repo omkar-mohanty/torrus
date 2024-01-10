@@ -1,0 +1,10 @@
+[package]
+name = "torrus_app"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+torrus_engine = {path = "../torrus_engine"}
+torrus_core = {path = "../torrus_core"}
