@@ -2,14 +2,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{ops::Deref, str::FromStr};
 
 /// [ID] is for info hash, 20 byte identity for Peers.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ID([u8; 20]);
-
-impl Default for ID {
-    fn default() -> Self {
-        ID([0u8; 20])
-    }
-}
 
 impl Deref for ID {
     type Target = [u8; 20];

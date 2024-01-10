@@ -2,6 +2,7 @@ pub mod block;
 pub mod id;
 pub mod metainfo;
 pub mod peer;
+pub mod store;
 
 pub mod prelude {
     pub use super::block::*;
@@ -10,6 +11,6 @@ pub mod prelude {
     pub use super::peer::*;
 
     pub trait Sha1Hash {
-        fn into_sha1(&self) -> ID;
+        fn as_sha1(&self) -> ID;
     }
 }

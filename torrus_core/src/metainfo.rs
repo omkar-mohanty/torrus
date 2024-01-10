@@ -41,7 +41,7 @@ pub struct Info {
 }
 
 impl Sha1Hash for Info {
-    fn into_sha1(&self) -> crate::id::ID {
+    fn as_sha1(&self) -> crate::id::ID {
         todo!("Implement SHA1 hash for Info struct")
     }
 }
@@ -120,7 +120,7 @@ mod tests {
     fn test_decode() -> Result<()> {
         use std::fs;
 
-        for entry in fs::read_dir("./resources")? {
+        for entry in fs::read_dir("../resources")? {
             let data = fs::read(entry?.path())?;
             Metainfo::new(&data)?;
         }

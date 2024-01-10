@@ -1,6 +1,14 @@
+use crate::prelude::{Sha1Hash, ID};
 use std::net::IpAddr;
 
-use crate::prelude::{Sha1Hash, ID};
+pub struct PeerInfo {
+    id: ID,
+    addr: IpAddr,
+}
+
+pub trait PeerSource {
+    fn get_peers(&mut self) -> impl Iterator<Item = PeerInfo>;
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum ChokeStatus {
@@ -29,16 +37,14 @@ impl Default for PeerState {
 }
 
 pub struct Peer {
-    id: ID,
-    ip: IpAddr,
+    peer_info: PeerInfo,
     state: PeerState,
 }
 
 impl Peer {
-    pub fn new(id: ID, ip: IpAddr) -> Self {
+    pub fn new(peer_info: PeerInfo) -> Self {
         Peer {
-            id,
-            ip,
+            peer_info,
             state: PeerState::default(),
         }
     }
@@ -52,12 +58,12 @@ impl Peer {
     }
 
     pub fn ip_addr(&self) -> IpAddr {
-        self.ip
+        self.peer_info.addr
     }
 }
 
 impl Sha1Hash for Peer {
-    fn into_sha1(&self) -> ID {
-        self.id
+    fn as_sha1(&self) -> ID {
+        self.peer_info.id
     }
 }
