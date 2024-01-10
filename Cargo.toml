@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-    "torrus",
-    "rbtree-rs"
-, "llcache", "torrusd", "torrctl"]
+ "torrus_core", "torrus_storage", "torrus_tracker", "torrus_engine", "torrus_app"]
+resolver = "2"
 

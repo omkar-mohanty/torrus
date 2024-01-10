@@ -48,8 +48,8 @@ impl Piece {
         assert_eq!(block.block_info.offset, self.byte_index);
         let mut cursor = Cursor::new(&mut self.data);
         cursor.seek(SeekFrom::Start(self.byte_index))?;
-        cursor.write(&block)?;
-        self.byte_index = self.byte_index + (block.len() as u64);
+        let _written = cursor.write(&block)?;
+        self.byte_index += block.len() as u64;
         Ok(())
     }
 
@@ -86,12 +86,12 @@ impl Piece {
             return false;
         }
 
-        return true;
+        true
     }
 }
 
 impl Sha1Hash for Piece {
-    fn into_sha1(&self) -> ID {
+    fn as_sha1(&self) -> ID {
         self.piece_info.hash
     }
 }
