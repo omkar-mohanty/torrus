@@ -3,7 +3,7 @@ use reqwest::{Client, StatusCode};
 use std::{collections::HashMap, ops::Deref};
 use url::Url;
 
-use crate::request::TrackerRequest;
+use crate::{request::TrackerRequest, TrackerResponse};
 
 pub struct HttpTracker {
     url: Url,
@@ -18,8 +18,9 @@ impl HttpTracker {
         }
     }
 
-    pub async fn send_request(&mut self, request: TrackerRequest) -> Result<()> {
+    pub async fn send_request(&mut self, request: TrackerRequest) -> Result<TrackerResponse> {
         let query = Self::request_to_hash_map(request);
+
         let resp = self
             .client
             .get(self.url.to_string())
@@ -27,13 +28,13 @@ impl HttpTracker {
             .send()
             .await?;
 
-        println!("{:?}", resp);
-
         if StatusCode::OK != resp.status() {
             anyhow::bail!("Error HTTP");
         }
 
-        Ok(())
+        let bytes = resp.bytes().await?;
+        let tracker_response = serde_bencode::de::from_bytes(&bytes)?;
+        Ok(tracker_response)
     }
 
     fn request_to_hash_map(request: TrackerRequest) -> HashMap<String, String> {

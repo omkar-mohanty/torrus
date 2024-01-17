@@ -1,40 +1,38 @@
 use anyhow::Result;
 use serde_bytes::ByteBuf;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::fmt::Display;
 
-use crate::prelude::Sha1Hash;
+use crate::{id::ID, prelude::Sha1Hash};
 
 #[derive(Debug, Deserialize)]
 pub struct Node(String, i64);
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct File {
-    path: Vec<String>,
-    length: i64,
+    pub path: Vec<String>,
+    pub length: u64,
     #[serde(default)]
     md5sum: Option<String>,
 }
 
-/// V1 Info struct
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+/// Represents Bittorrent Info dictionary
+/// If the torrent is single file the `files` field is empty in which case the `name` becomes the
+/// path of the torrent
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Info {
     pub name: String,
     pub pieces: ByteBuf,
     #[serde(rename = "piece length")]
-    pub piece_length: i64,
+    pub piece_length: u64,
     #[serde(default)]
     pub md5sum: Option<String>,
     #[serde(default)]
-    pub length: Option<i64>,
-    #[serde(default)]
+    pub length: u64,
     pub files: Option<Vec<File>>,
     #[serde(default)]
     pub private: Option<u8>,
-    #[serde(default)]
-    pub path: Option<Vec<String>>,
     #[serde(default)]
     #[serde(rename = "root hash")]
     pub root_hash: Option<String>,
@@ -42,7 +40,14 @@ pub struct Info {
 
 impl Sha1Hash for Info {
     fn as_sha1(&self) -> crate::id::ID {
-        todo!("Implement SHA1 hash for Info struct")
+        let bytes = serde_bencode::to_bytes(&self).unwrap();
+
+        let mut hasher = Sha1::new();
+
+        hasher.update(bytes);
+
+        let hashed = hasher.finalize().to_owned().to_vec();
+        ID::from(hashed)
     }
 }
 
@@ -100,7 +105,6 @@ impl Display for Metainfo {
         f.write_fmt(format_args!("private:\t{:?}\n", self.info.private))?;
         f.write_fmt(format_args!("root hash:\t{:?}\n", self.info.root_hash))?;
         f.write_fmt(format_args!("md5sum:\t\t{:?}\n", self.info.md5sum))?;
-        f.write_fmt(format_args!("path:\t\t{:?}\n", self.info.path))?;
         if let Some(files) = &self.info.files {
             for file in files {
                 f.write_fmt(format_args!("file path:\t{:?}\n", file.path))?;
@@ -116,13 +120,23 @@ impl Display for Metainfo {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use std::fs;
+
     #[test]
     fn test_decode() -> Result<()> {
-        use std::fs;
-
         for entry in fs::read_dir("../resources")? {
             let data = fs::read(entry?.path())?;
             Metainfo::new(&data)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode() -> Result<()> {
+        for entry in fs::read_dir("../resources")? {
+            let data = fs::read(entry?.path())?;
+            let metadata = Metainfo::new(&data)?;
+            metadata.info.as_sha1();
         }
         Ok(())
     }

@@ -12,6 +12,15 @@ impl Deref for ID {
     }
 }
 
+impl From<Vec<u8>> for ID {
+    fn from(value: Vec<u8>) -> Self {
+        assert_eq!(value.len(), 20);
+        let mut buf = [0u8; 20];
+        buf.copy_from_slice(&value);
+        ID(buf)
+    }
+}
+
 impl FromStr for ID {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {

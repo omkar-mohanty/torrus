@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 torrus_core = {path = "../torrus_core"}
 torrus_storage = {path = "../torrus_storage"}
+torrus_tracker = {path = "../torrus_tracker"}
+tokio = {version = "1.35.1"}

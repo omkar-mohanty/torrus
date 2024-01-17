@@ -1,8 +1,8 @@
-use std::str::FromStr;
-
 use super::{http::HttpTracker, udp::UdpTracker};
-use crate::request::TrackerRequest;
-use anyhow::{Ok, Result};
+use crate::{TrackerRequest, TrackerResponse};
+use anyhow::Result;
+use std::str::FromStr;
+use torrus_core::id::ID;
 use url::Url;
 
 pub struct Tracker {
@@ -22,42 +22,22 @@ impl Tracker {
         Self { tracker_type }
     }
 
-    pub async fn send_request(&mut self, request: TrackerRequest) -> Result<()> {
+    pub async fn send_request(&mut self, request: TrackerRequest) -> Result<TrackerResponse> {
         use Type::*;
 
         match &mut self.tracker_type {
-            Http(ref mut tracker) => tracker.send_request(request).await?,
-            Udp(tracker) => tracker.send_request(request).await?,
-        };
+            Http(ref mut tracker) => tracker.send_request(request).await,
+            Udp(ref mut tracker) => tracker.send_request(request).await,
+        }
+    }
 
-        Ok(())
+    pub async fn announce(&mut self, id: ID) -> Result<TrackerResponse> {
+        let tracker_request = TrackerRequest::builder().info_hash(id).set_port(6881);
+        self.send_request(tracker_request).await
     }
 }
 
 enum Type {
     Http(HttpTracker),
     Udp(UdpTracker),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-    use std::fs;
-    use torrus_core::prelude::*;
-
-    #[tokio::test]
-    async fn test_tracker() -> Result<()> {
-        let dir = fs::read("../resources/ubuntu-22.10-desktop-amd64.iso.torrent").unwrap();
-        let metainfo = Metainfo::new(&dir).unwrap();
-
-        if let Some(al) = metainfo.announce_list {
-            for a in al {
-                let mut tracker = Tracker::new(&a[0]);
-                tracker.send_request(TrackerRequest::default()).await?;
-            }
-        }
-
-        Ok(())
-    }
 }

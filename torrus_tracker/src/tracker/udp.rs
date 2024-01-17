@@ -1,4 +1,4 @@
-use crate::TrackerRequest;
+use crate::{TrackerRequest, TrackerResponse};
 use anyhow::Result;
 use url::Url;
 
@@ -11,7 +11,7 @@ impl UdpTracker {
         Self { url }
     }
 
-    pub async fn send_request(&self, _udp_request: TrackerRequest) -> Result<()> {
-        todo!()
+    pub async fn send_request(&mut self, _udp_request: TrackerRequest) -> Result<TrackerResponse> {
+        todo!("Implement UDP tracker")
     }
 }

@@ -1,5 +1,7 @@
 mod request;
+mod response;
 mod tracker;
 
-pub(crate) use crate::request::*;
+pub use crate::request::*;
+pub use crate::response::*;
 pub use tracker::Tracker;

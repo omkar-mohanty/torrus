@@ -19,43 +19,43 @@ impl TrackerRequest {
         Self::default()
     }
 
-    pub fn info_hash(mut req: Self, id: ID) -> Self {
-        req.info_hash = id;
-        req
+    pub fn info_hash(mut self, id: ID) -> Self {
+        self.info_hash = id;
+        self
     }
 
-    pub fn set_peer_id(mut req: Self, id: ID) -> Self {
-        req.peer_id = id;
-        req
+    pub fn set_peer_id(mut self, id: ID) -> Self {
+        self.peer_id = id;
+        self
     }
 
-    pub fn set_port(mut req: Self, port: u16) -> Self {
-        req.port = port;
-        req
+    pub fn set_port(mut self, port: u16) -> Self {
+        self.port = port;
+        self
     }
 
-    pub fn set_downloaded(mut req: Self, downloaded: u64) -> Self {
-        req.downloaded = downloaded;
-        req
+    pub fn set_downloaded(mut self, downloaded: u64) -> Self {
+        self.downloaded = downloaded;
+        self
     }
 
-    pub fn set_event(mut req: Self, left: u64) -> Self {
-        req.left = left;
-        req
+    pub fn set_event(mut self, left: u64) -> Self {
+        self.left = left;
+        self
     }
 
-    pub fn set_ip(mut req: Self, ip: u32) -> Self {
-        req.ip_address = ip;
-        req
+    pub fn set_ip(mut self, ip: u32) -> Self {
+        self.ip_address = ip;
+        self
     }
 
-    pub fn set_key(mut req: Self, key: u32) -> Self {
-        req.key = key;
-        req
+    pub fn set_key(mut self, key: u32) -> Self {
+        self.key = key;
+        self
     }
 
-    pub fn set_num_want(mut req: Self, num_want: i32) -> Self {
-        req.num_want = num_want;
-        req
+    pub fn set_num_want(mut self, num_want: i32) -> Self {
+        self.num_want = num_want;
+        self
     }
 }
